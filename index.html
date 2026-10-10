@@ -187,7 +187,7 @@
   const milikSaya = (d) => { const b = bagianSaya(), p = d && d.pemilik; if (!b || !p) return false; const lw = (s) => String(s).toLowerCase().split(/[^a-z]+/).filter(Boolean).pop(); return lw(b) === lw(p); };
   // Hapus & arsip: Admin/Sekretariat (+Ketua) semua kategori; peran lain hanya dokumen miliknya di kategori yg boleh diubah.
   const bolehKelolaArsip = (d) => { const k = kunciPeran(); if (['Admin', 'Sekretariat', 'Ketua'].includes(k)) return bolehUbahKat(d.kat); return bolehUbahKat(d.kat) && milikSaya(d); };
-  const dispUntukSaya = () => { const b = bagianSaya(); return SM.filter(s => s.status !== 'Selesai' && s.disp.some(x => x.ke.includes(b))); };
+  const dispUntukSaya = () => { const b = bagianSaya(); return SM.filter(s => !s.arsip && s.status !== 'Selesai' && s.disp.some(x => x.ke.includes(b))); };
   const dispLewatBatas = () => SM.filter(s => s.status !== 'Selesai' && s.disp.some(x => x.batas && x.batas < HARI_INI));
   let AGENDA = [];
   let AGENDA_ID = 1;
@@ -274,7 +274,7 @@
       <div class="brand"><img src="assets/img/logo-lsp.png" alt=""><div><b>Arsip Dokumen</b><span>LSP UNIMED</span></div></div>
       <button data-v="ringkasan">Ringkasan${tugasSaya ? ` <span class="n hot">${tugasSaya}</span>` : ''}</button>
       <button data-v="dokumen" data-k="">Semua dokumen <span class="n">${DOCS.filter(d => bolehLihatKat(d.kat) && !d.arsip).length}</span></button>
-      <button data-v="arsip">Dokumen arsip <span class="n">${DOCS.filter(d => bolehLihatKat(d.kat) && d.arsip).length}</span></button>
+      <button data-v="arsip">Dokumen arsip <span class="n">${DOCS.filter(d => bolehLihatKat(d.kat) && d.arsip).length + SM.filter(s => s.arsip).length}</span></button>
       <button data-v="pengingat">Pengingat <span class="n">${reminders}</span></button>
       ${peranBolehAgenda() ? '<button data-v="agenda">Agenda terdekat</button>' : ''}
       <div class="grp">Persuratan</div>
@@ -367,28 +367,38 @@
   /* ---------- Dokumen arsip: yg sudah diarsipkan, filter per kategori ---------- */
   function vArsip(v, T) {
     T.textContent = 'Dokumen arsip';
-    const f = fl(); f.kat = f.kat || '';
+    const f = fl(); f.kat = f.kat || ''; f.jenis = f.jenis || '';
     const opsiKat = KAT.filter(k => bolehLihatKat(k[0]));
-    v.innerHTML = `<p class="muted lead">Dokumen final yang sudah diarsipkan. Saring berdasarkan kategori, atau cari judul/nomor.</p>
+    v.innerHTML = `<p class="muted lead">Dokumen final dan surat masuk yang sudah diarsipkan. Saring berdasarkan jenis + kategori, atau cari judul/nomor.</p>
       <div class="toolbar">
-      <input id="q" type="search" placeholder="Cari judul atau nomor dokumen" value="${esc(f.q)}">
+      <input id="q" type="search" placeholder="Cari judul, nomor, atau perihal" value="${esc(f.q)}">
+      <select id="fjns"><option value="">Semua jenis</option><option value="dok"${f.jenis === 'dok' ? ' selected' : ''}>Dokumen</option><option value="sm"${f.jenis === 'sm' ? ' selected' : ''}>Surat masuk</option></select>
       <select id="fkat"><option value="">Semua kategori</option>${opsiKat.map(k => `<option value="${k[0]}"${f.kat === k[0] ? ' selected' : ''}>${esc(k[1])}</option>`).join('')}</select>
       <label class="dt">Dari<input type="date" id="fd" value="${f.dari}"></label><label class="dt">Sampai<input type="date" id="fe" value="${f.sampai}"></label>
       <button class="btn ghost" id="ex" type="button">Ekspor Excel</button></div>
-      <div class="table-wrap"><table><thead><tr><th>Nomor</th><th>Judul</th><th>Kategori</th><th>Terbit</th><th>Rev.</th><th>Berlaku sampai</th><th>Status</th></tr></thead><tbody id="tb"></tbody></table></div><div class="pager" id="pg"></div>`;
-    const daftar = () => DOCS.filter(d => d.arsip && bolehLihatKat(d.kat) && (!f.kat || d.kat === f.kat) && dalamRentang(d.terbit, f) && (!f.q || (d.judul + ' ' + d.kode).toLowerCase().includes(f.q.toLowerCase())))
+      <h3 style="margin:14px 0 8px">Dokumen</h3>
+      <div class="table-wrap"><table><thead><tr><th>Nomor</th><th>Judul</th><th>Kategori</th><th>Terbit</th><th>Rev.</th><th>Berlaku sampai</th><th>Status</th></tr></thead><tbody id="tb"></tbody></table></div><div class="pager" id="pg"></div>
+      <h3 style="margin:18px 0 8px">Surat masuk</h3>
+      <div class="table-wrap"><table><thead><tr><th>No. agenda</th><th>Diterima</th><th>Pengirim & nomor surat</th><th>Perihal</th><th>Status</th></tr></thead><tbody id="tbsm"></tbody></table></div>`;
+    const daftar = () => DOCS.filter(d => d.arsip && bolehLihatKat(d.kat) && (!f.jenis || f.jenis === 'dok') && (!f.kat || d.kat === f.kat) && dalamRentang(d.terbit, f) && (!f.q || (d.judul + ' ' + d.kode).toLowerCase().includes(f.q.toLowerCase())))
       .sort((a, b) => (b.terbit || '9999').localeCompare(a.terbit || '9999'));
+    const daftarSM = () => SM.filter(s => s.arsip && (!f.jenis || f.jenis === 'sm') && dalamRentang(s.terima, f) && (!f.q || (s.perihal + ' ' + s.asal + ' ' + s.nomor + ' ' + s.agenda).toLowerCase().includes(f.q.toLowerCase())))
+      .sort((a, b) => b.agenda.localeCompare(a.agenda));
     const draw = () => {
       const list = daftar();
       document.getElementById('tb').innerHTML = halaman(list, f).map(d => { const s = status(d); return `<tr data-id="${d.id}"><td class="code" data-l="Nomor">${esc(d.kode)}</td><td data-l="Judul">${esc(d.judul)}<div class="muted" style="font-size:.8rem">${esc(d.pemilik)}${d.tpl ? ' · <span class="chip">dari templat</span>' : ''}${d.surat ? ' · <span class="chip">surat keluar</span>' : ''}</div></td><td data-l="Kategori">${esc(katNama(d.kat))}</td><td data-l="Terbit">${tgl(d.terbit)}</td><td data-l="Revisi">${d.rev}</td><td data-l="Berlaku sampai">${d.sampai ? tgl(d.sampai) : 'Tidak terbatas'}</td><td data-l="Status"><span class="badge ${s[1]}">${s[0]}</span></td></tr>`; }).join('') || `<tr><td colspan="7" class="muted kosong">Belum ada dokumen arsip yang cocok.</td></tr>`;
       pager(list.length, f, draw);
+      const lsm = daftarSM();
+      document.getElementById('tbsm').innerHTML = lsm.map(s => `<tr data-sm="${s.id}"><td class="code" data-l="No. agenda">${esc(s.agenda)}</td><td data-l="Diterima">${tgl(s.terima)}</td><td data-l="Pengirim">${esc(s.asal)}<div class="muted" style="font-size:.8rem">${esc(s.nomor)}</div></td><td data-l="Perihal">${esc(s.perihal)}${s.file_url ? ' · <span class="chip">ada berkas</span>' : ''}</td><td data-l="Status"><span class="badge ${smB[s.status]}">${s.status}</span></td></tr>`).join('') || `<tr><td colspan="5" class="muted kosong">Belum ada surat masuk yang diarsipkan.</td></tr>`;
     };
     document.getElementById('q').oninput = (e) => { f.q = e.target.value; f.pg = 1; draw(); };
+    document.getElementById('fjns').onchange = (e) => { f.jenis = e.target.value; f.pg = 1; draw(); };
     document.getElementById('fkat').onchange = (e) => { f.kat = e.target.value; f.pg = 1; draw(); };
     document.getElementById('fd').onchange = (e) => { f.dari = e.target.value; f.pg = 1; draw(); };
     document.getElementById('fe').onchange = (e) => { f.sampai = e.target.value; f.pg = 1; draw(); };
-    document.getElementById('ex').onclick = () => unduhCSV('dokumen-arsip', ['Nomor', 'Judul', 'Kategori', 'Penanggung jawab', 'Terbit', 'Berlaku sampai', 'Revisi', 'Status'], daftar().map(d => [d.kode, d.judul, katNama(d.kat), d.pemilik, d.terbit, d.sampai, d.rev, status(d)[0]]));
+    document.getElementById('ex').onclick = () => unduhCSV('dokumen-arsip', ['Jenis', 'Nomor', 'Judul/Perihal', 'Kategori/Pengirim', 'Penanggung jawab', 'Tanggal', 'Revisi', 'Status'], daftar().map(d => ['Dokumen', d.kode, d.judul, katNama(d.kat), d.pemilik, d.terbit, d.rev, status(d)[0]]).concat(daftarSM().map(s => ['Surat masuk', s.agenda, s.perihal, s.asal + ' / ' + s.nomor, '', s.terima, '', s.status])));
     document.getElementById('tb').onclick = (e) => { const tr = e.target.closest('tr[data-id]'); if (tr) detail(tr.dataset.id); };
+    document.getElementById('tbsm').onclick = (e) => { const tr = e.target.closest('tr[data-sm]'); if (tr) detailMasuk(tr.dataset.sm); };
     draw();
   }
 
@@ -432,11 +442,12 @@
   function vMasuk(v, T) {
     T.textContent = 'Surat masuk';
     const f = fl();
+    const jmlArsip = SM.filter(s => s.arsip).length;
     const tambah = bolehCatatMasuk() ? '<button class="btn" id="addSM" type="button">+ Catat surat masuk</button>' : '';
-    v.innerHTML = `<p class="muted lead">Setiap surat masuk diberi nomor agenda, dipindai, lalu didisposisikan ke bagian terkait. Alur: Diterima → Didisposisi → Selesai.${bolehCatatMasuk() ? '' : ' Peran Anda baca-saja kecuali menandai tugas disposisi Anda selesai.'}</p>
+    v.innerHTML = `<p class="muted lead">Setiap surat masuk diberi nomor agenda, dipindai, lalu didisposisikan ke bagian terkait. Alur: Diterima → Didisposisi → Selesai.${bolehCatatMasuk() ? '' : ' Peran Anda baca-saja kecuali menandai tugas disposisi Anda selesai.'}${jmlArsip ? ` Surat yang sudah diarsipkan (${jmlArsip}) tampil di tab <b>Dokumen arsip</b>.` : ''}</p>
       ${toolbar(f, ['Diterima', 'Didisposisi', 'Selesai'], 'Cari perihal, pengirim, atau nomor', tambah)}
       <div class="table-wrap"><table><thead><tr><th>No. agenda</th><th>Diterima</th><th>Pengirim & nomor surat</th><th>Perihal</th><th>Sifat</th><th>Status</th></tr></thead><tbody id="tb"></tbody></table></div><div class="pager" id="pg"></div>`;
-    const daftar = () => SM.filter(s => (!f.st || s.status === f.st) && dalamRentang(s.terima, f) && (!f.q || (s.perihal + ' ' + s.asal + ' ' + s.nomor + ' ' + s.agenda).toLowerCase().includes(f.q.toLowerCase()))).sort((a, b) => b.agenda.localeCompare(a.agenda));
+    const daftar = () => SM.filter(s => !s.arsip && (!f.st || s.status === f.st) && dalamRentang(s.terima, f) && (!f.q || (s.perihal + ' ' + s.asal + ' ' + s.nomor + ' ' + s.agenda).toLowerCase().includes(f.q.toLowerCase()))).sort((a, b) => b.agenda.localeCompare(a.agenda));
     const draw = () => {
       const list = daftar();
       document.getElementById('tb').innerHTML = halaman(list, f).map(s => `<tr data-sm="${s.id}"><td class="code" data-l="No. agenda">${esc(s.agenda)}</td><td data-l="Diterima">${tgl(s.terima)}</td><td data-l="Pengirim">${esc(s.asal)}<div class="muted" style="font-size:.8rem">${esc(s.nomor)}</div></td><td data-l="Perihal">${esc(s.perihal)}</td><td data-l="Sifat">${s.sifat === 'Biasa' ? 'Biasa' : `<b class="sifat">${esc(s.sifat)}</b>`}</td><td data-l="Status"><span class="badge ${smB[s.status]}">${s.status}</span></td></tr>`).join('') || `<tr><td colspan="6" class="muted kosong">Tidak ada surat yang cocok dengan filter.</td></tr>`;
