@@ -73,7 +73,7 @@ var SKEMA = {
     izin: { list: 'admin', ambil: 'admin', tambah: 'admin', ubah: 'admin', hapus: 'admin' }
   },
   SuratMasuk: {
-    kolom: ['agenda', 'tgl_surat', 'terima', 'asal', 'nomor', 'perihal', 'sifat', 'status', 'file_id', 'file_nama', 'file_url'],
+    kolom: ['agenda', 'tgl_surat', 'terima', 'asal', 'nomor', 'perihal', 'sifat', 'status', 'arsip', 'file_id', 'file_nama', 'file_url'],
     publik: [],
     aturan: {
       agenda: { wajib: true, maks: 30, pesan: 'Nomor agenda (SM-xxx/tahun) wajib diisi.' },

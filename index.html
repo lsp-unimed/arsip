@@ -111,7 +111,7 @@
     return o;
   };
   const dokKeServer = (d) => ({ kode: d.kode, kat: d.kat, judul: d.judul, pemilik: d.pemilik || '', terbit: d.terbit || '', sampai: d.sampai || '', status: d.status || 'Berlaku', arsip: d.arsip ? 'YA' : '', rev: d.rev || 1, alur: d.alur || '', surat: d.surat ? 'Y' : '', tpl_id: (d.tpl && d.tpl.id) || '', tpl_data: d.tpl ? JSON.stringify(d.tpl) : '', file_id: d.file_id || '', file_nama: d.berkas || '', file_url: d.file_url || '', ket: d.ket || '' });
-  const smDariServer = (r, dispSemua) => ({ _rid: r.id, id: r.id, agenda: r.agenda, tglSurat: tglId(r.tgl_surat), terima: tglId(r.terima), asal: r.asal || '', nomor: r.nomor || '', perihal: r.perihal || '', sifat: r.sifat || 'Biasa', status: r.status || 'Diterima', berkas: r.file_nama || ('Pindaian_' + String(r.agenda || '').replace(/\W+/g, '_') + '.pdf'), file_id: r.file_id || '', file_url: r.file_url || '', disp: (dispSemua || []).filter(x => String(x.surat_id) === String(r.id)).map(x => ({ _rid: x.id, tgl: tglId(x.tgl), ke: String(x.ke || '').split(',').map(s => s.trim()).filter(Boolean), instruksi: x.instruksi || '', catatan: x.catatan || '', batas: tglId(x.batas) })) });
+  const smDariServer = (r, dispSemua) => ({ _rid: r.id, id: r.id, agenda: r.agenda, tglSurat: tglId(r.tgl_surat), terima: tglId(r.terima), asal: r.asal || '', nomor: r.nomor || '', perihal: r.perihal || '', sifat: r.sifat || 'Biasa', status: r.status || 'Diterima', arsip: String(r.arsip || '').toUpperCase() === 'YA' || r.arsip === true, berkas: r.file_nama || ('Pindaian_' + String(r.agenda || '').replace(/\W+/g, '_') + '.pdf'), file_id: r.file_id || '', file_url: r.file_url || '', disp: (dispSemua || []).filter(x => String(x.surat_id) === String(r.id)).map(x => ({ _rid: x.id, tgl: tglId(x.tgl), ke: String(x.ke || '').split(',').map(s => s.trim()).filter(Boolean), instruksi: x.instruksi || '', catatan: x.catatan || '', batas: tglId(x.batas) })) });
   // muatData: tarik Dokumen+Revisi+SuratMasuk+Disposisi+Agenda+Log dari backend sekali saat shell.
   let DATA_OK = false;
   async function muatKop() {
@@ -164,7 +164,7 @@
   const cariAgenda = (id) => AGENDA.find(x => String(x.id) === String(id) || (x._rid && String(x._rid) === String(id)));
   const LOG = [];
   const catat = (m, siapa) => { LOG.unshift([jam(), siapa || PERAN_AKTIF, m]); try { api('tambah', { tabel: 'Log', data: { aksi: m } }).catch(() => {}); } catch (e) {} };
-  const smKeServer = (s) => ({ agenda: s.agenda, tgl_surat: s.tglSurat || '', terima: s.terima || '', asal: s.asal || '', nomor: s.nomor || '', perihal: s.perihal || '', sifat: s.sifat || 'Biasa', status: s.status || 'Diterima', file_id: s.file_id || '', file_nama: s.berkas || '', file_url: s.file_url || '' });
+  const smKeServer = (s) => ({ agenda: s.agenda, tgl_surat: s.tglSurat || '', terima: s.terima || '', asal: s.asal || '', nomor: s.nomor || '', perihal: s.perihal || '', sifat: s.sifat || 'Biasa', status: s.status || 'Diterima', arsip: s.arsip ? 'YA' : '', file_id: s.file_id || '', file_nama: s.berkas || '', file_url: s.file_url || '' });
   const simpanDokBackend = async (d) => { if (d && d._rid) { try { await api('ubah', { tabel: 'Dokumen', id: d._rid, data: dokKeServer(d) }); } catch (err) { toast(err.message + ' — perubahan hanya di layar'); } } };
 
   /* ---------- Peran & hak akses (demo frontend; versi akhir disaring di backend) ----------
@@ -457,8 +457,9 @@
       <span class="badge ${smB[s.status]}">${s.status}</span> ${s.sifat !== 'Biasa' ? `<span class="badge bad">${esc(s.sifat)}</span>` : ''}${tugasIni ? ' <span class="badge warn">Tugas Anda</span>' : ''}
       <div class="steps">${['Diterima', 'Didisposisi', 'Selesai'].map((x, i, a) => `<div class="${a.indexOf(s.status) >= i ? 'on' : ''}">${x}</div>`).join('')}</div>
       <dl class="kv"><dt>Pengirim</dt><dd>${esc(s.asal)}</dd><dt>Nomor surat</dt><dd>${esc(s.nomor)}</dd><dt>Tanggal surat</dt><dd>${tgl(s.tglSurat)}</dd><dt>Diterima</dt><dd>${tgl(s.terima)}</dd></dl>
-      <div class="file"><i>PDF</i><div><b>${esc(s.berkas)}</b><div class="muted" style="font-size:.82rem">Hasil pindai surat — pada versi akhir tersimpan di Drive LSP</div></div></div>
-      <div class="acts"><button class="btn ghost" data-a="cetak">Cetak lembar disposisi</button>${s.status !== 'Selesai' ? '<button class="btn ghost" data-a="selesai">Tandai selesai</button>' : ''}</div>
+      <div class="file"><i>PDF</i><div><b>${s.file_url ? `<a href="${esc(s.file_url)}" target="_blank" rel="noopener">${esc(s.berkas)}</a>` : esc(s.berkas)}</b><div class="muted" style="font-size:.82rem">${s.file_url ? 'Tersimpan di Drive LSP — klik nama berkas untuk membuka.' : 'Belum ada tautan berkas — tambahkan lewat Ubah data.'}</div></div></div>
+      <div class="acts"><button class="btn ghost" data-a="cetak">Cetak lembar disposisi</button>${s.status !== 'Selesai' ? '<button class="btn ghost" data-a="selesai">Tandai selesai</button>' : ''}${s.file_url ? `<a class="btn ghost" href="${esc(s.file_url)}" target="_blank" rel="noopener" data-a="unduh">Buka / unduh berkas</a>` : ''}</div>
+      ${bolehCatatMasuk() ? `<div class="acts">${s.arsip ? '<button class="btn ghost" data-a="keluar-arsip">Keluarkan dari arsip</button>' : '<button class="btn ghost" data-a="edit">Ubah data</button><button class="btn ghost" data-a="arsip">Arsipkan</button>'}<button class="btn ghost" data-a="hapus">Hapus</button></div>${s.arsip ? '<p class="note">Surat ini sudah diarsipkan.</p>' : ''}` : ''}
       <h3>Riwayat disposisi</h3>${s.disp.length ? `<div class="ver">${s.disp.map(x => `<div><b>${tgl(x.tgl)} → ${esc(x.ke.join(', '))}</b><span>${esc(x.instruksi)}${x.catatan ? ': ' + esc(x.catatan) : ''}</span>${x.batas ? `<span class="muted"> Batas ${tgl(x.batas)}</span>` : ''}</div>`).join('')}</div>` : '<p class="muted">Belum didisposisikan.</p>'}
       ${s.status !== 'Selesai' && bolehDisp ? `<h3 style="margin-top:18px">Buat disposisi${kunciPeran() === 'Ketua' ? ' (Ketua LSP)' : ''}</h3><form class="form" id="fDisp">
         <fieldset class="cek"><legend>Diteruskan kepada</legend>${BAGIAN.map(b => `<label><input type="checkbox" value="${esc(b)}"> ${esc(b)}</label>`).join('')}</fieldset>
@@ -470,6 +471,11 @@
       const a = e.target.closest('[data-a]'); if (!a) return;
       if (a.dataset.a === 'cetak') window.cetakDokumen(window.lembarDisposisi(s, BAGIAN), 'Lembar disposisi ' + s.agenda);
       if (a.dataset.a === 'selesai') { s.status = 'Selesai'; if (s._rid) { try { await api('ubah', { tabel: 'SuratMasuk', id: s._rid, data: smKeServer(s) }); } catch (err) { toast(err.message); } } catat('Menandai selesai surat masuk ' + s.agenda); tutupDrawer(); toast('Surat ' + s.agenda + ' selesai'); shell(); }
+      if (a.dataset.a === 'unduh') { catat('Mengunduh surat masuk ' + s.agenda); return; }
+      if (a.dataset.a === 'edit') { if (!bolehCatatMasuk()) { toast('Hanya Admin/Sekretariat/Ketua'); return; } tutupDrawer(); formEditMasuk(s.id); return; }
+      if (a.dataset.a === 'arsip') { if (!bolehCatatMasuk()) { toast('Hanya Admin/Sekretariat/Ketua'); return; } s.arsip = true; if (s._rid) { try { await api('ubah', { tabel: 'SuratMasuk', id: s._rid, data: smKeServer(s) }); } catch (err) { toast(err.message); return; } } catat('Mengarsipkan surat masuk ' + s.agenda); tutupDrawer(); toast('Diarsipkan: ' + s.agenda); shell(); detailMasuk(s.id); return; }
+      if (a.dataset.a === 'keluar-arsip') { if (!bolehCatatMasuk()) { toast('Hanya Admin/Sekretariat/Ketua'); return; } s.arsip = false; if (s._rid) { try { await api('ubah', { tabel: 'SuratMasuk', id: s._rid, data: smKeServer(s) }); } catch (err) { toast(err.message); return; } } catat('Mengeluarkan dari arsip ' + s.agenda); tutupDrawer(); toast('Dikeluarkan dari arsip: ' + s.agenda); shell(); detailMasuk(s.id); return; }
+      if (a.dataset.a === 'hapus') { if (!bolehCatatMasuk()) { toast('Hanya Admin/Sekretariat/Ketua'); return; } if (!confirm('Hapus surat masuk ' + s.agenda + ' — ' + s.perihal + '?')) return; if (s._rid) { try { await api('hapus', { tabel: 'SuratMasuk', id: s._rid }); } catch (err) { toast(err.message); return; } } SM = SM.filter(x => String(x.id) !== String(s.id)); catat('Menghapus surat masuk ' + s.agenda); tutupDrawer(); shell(); toast('Dihapus: ' + s.agenda); return; }
     });
     const fd = back.querySelector('#fDisp');
     if (fd) fd.onsubmit = async (e) => {
@@ -490,6 +496,41 @@
     };
   }
 
+  /* ---------- Ubah data surat masuk (pengirim, nomor, tanggal, tautan) ---------- */
+  function formEditMasuk(id) {
+    const s = cariSM(id); if (!s) { toast('Data tidak ditemukan.'); return; }
+    if (!bolehCatatMasuk()) { toast('Hanya Admin/Sekretariat/Ketua'); return; }
+    const back = drawer(`<h2>Ubah surat masuk</h2><p class="muted" style="margin-top:-6px">${esc(s.agenda)}</p>
+      <form class="form" id="fEM"><label class="f">Pengirim<input name="asal" required value="${esc(s.asal)}"></label>
+      <div class="row2"><label class="f">Nomor surat pengirim<input name="nomor" required value="${esc(s.nomor)}"></label><label class="f">Sifat<select name="sifat">${['Biasa', 'Segera', 'Sangat segera', 'Rahasia'].map(x => `<option${x === s.sifat ? ' selected' : ''}>${x}</option>`).join('')}</select></label></div>
+      <div class="row2"><label class="f">Tanggal surat<input type="date" name="tglSurat" required value="${esc(s.tglSurat || '')}"></label><label class="f">Tanggal diterima<input type="date" name="terima" required value="${esc(s.terima || '')}"></label></div>
+      <label class="f">Perihal<input name="perihal" required value="${esc(s.perihal)}"></label>
+      <label class="f">Ganti pindaian (opsional, PDF/JPG/PNG maks 10 MB)<input type="file" name="berkas" accept=".pdf,.jpg,.jpeg,.png"></label>
+      <label class="f">atau tautan berkas Drive<input name="tautan" value="${esc(s.file_url || '')}" placeholder="https://drive.google.com/..."></label>
+      <div><button class="btn" type="submit" id="btnEM">Simpan perubahan</button></div></form>`);
+    const f = back.querySelector('#fEM');
+    f.onsubmit = async (e) => {
+      e.preventDefault();
+      const btn = back.querySelector('#btnEM'); btn.disabled = true; btn.textContent = 'Menyimpan…';
+      let file_id = s.file_id || '', file_nama = s.berkas, file_url = f.tautan.value.trim();
+      try {
+        const fl = await bacaBerkas(f.berkas);
+        if (fl) {
+          if (file_url && file_url !== (s.file_url || '')) { file_nama = fl.nama; }
+          else {
+            try {
+              const up = await api('unggahBerkas', { data: { nama: fl.nama, mime: fl.mime, base64: fl.base64, kat: 'KOR' } });
+              file_id = up.file_id || file_id; file_nama = up.file_nama || fl.nama; file_url = up.file_url || file_url;
+            } catch (err) { toast(err.message + ' Data tetap disimpan tanpa mengganti tautan.'); }
+          }
+        }
+      } catch (err) { toast(err.message); btn.disabled = false; btn.textContent = 'Simpan perubahan'; return; }
+      Object.assign(s, { asal: f.asal.value.trim(), nomor: f.nomor.value.trim(), sifat: f.sifat.value, tglSurat: f.tglSurat.value, terima: f.terima.value, perihal: f.perihal.value.trim(), file_id, berkas: file_nama || s.berkas, file_url });
+      if (s._rid) { try { await api('ubah', { tabel: 'SuratMasuk', id: s._rid, data: smKeServer(s) }); } catch (err) { toast(err.message + ' — perubahan hanya di layar'); } }
+      catat('Mengubah surat masuk ' + s.agenda); tutupDrawer(); toast('Perubahan tersimpan: ' + s.agenda); shell(); detailMasuk(s.id);
+    };
+  }
+
   function formMasuk() {
     tutupDrawer();
     const no = `SM-${pad(seq.SM + 1)}/${HARI_INI.slice(0, 4)}`;
@@ -499,12 +540,25 @@
       <div class="row2"><label class="f">Nomor surat pengirim<input name="nomor" required></label><label class="f">Sifat<select name="sifat"><option>Biasa</option><option>Segera</option><option>Sangat segera</option><option>Rahasia</option></select></label></div>
       <div class="row2"><label class="f">Tanggal surat<input type="date" name="tglSurat" required></label><label class="f">Tanggal diterima<input type="date" name="terima" value="${HARI_INI}" required></label></div>
       <label class="f">Perihal<input name="perihal" required></label>
-      <label class="f">Pindaian surat (PDF/JPG)<input type="file" accept=".pdf,.jpg,.jpeg,.png"></label>
-      <div><button class="btn" type="submit">Simpan surat masuk</button></div></form>`);
+      <label class="f">Pindaian surat (PDF/JPG/PNG maks 10 MB)<input type="file" name="berkas" accept=".pdf,.jpg,.jpeg,.png"></label>
+      <label class="f">atau tautan Drive (opsional)<input name="tautan" placeholder="https://drive.google.com/..."></label>
+      <div><button class="btn" type="submit" id="btnSM">Simpan surat masuk</button></div></form>`);
     const f = back.querySelector('#fSM');
     f.onsubmit = async (e) => {
-      e.preventDefault(); seq.SM++;
-      const s = { id: SM.length + 1, agenda: no, tglSurat: f.tglSurat.value, terima: f.terima.value, asal: f.asal.value.trim(), nomor: f.nomor.value.trim(), perihal: f.perihal.value.trim(), sifat: f.sifat.value, status: 'Diterima', disp: [], berkas: 'Pindaian_' + no.replace(/\W+/g, '_') + '.pdf' };
+      e.preventDefault();
+      const btn = back.querySelector('#btnSM'); btn.disabled = true; btn.textContent = 'Menyimpan…';
+      let file_id = '', file_nama = '', file_url = (f.tautan.value || '').trim();
+      try {
+        const fl = await bacaBerkas(f.berkas);
+        if (fl && !file_url) {
+          try {
+            const up = await api('unggahBerkas', { data: { nama: fl.nama, mime: fl.mime, base64: fl.base64, kat: 'KOR' } });
+            file_id = up.file_id || ''; file_nama = up.file_nama || fl.nama; file_url = up.file_url || '';
+          } catch (err) { toast(err.message + ' — surat tetap dicatat tanpa berkas.'); file_nama = fl.nama; }
+        } else if (fl && file_url) { file_nama = fl.nama; }
+      } catch (err) { toast(err.message); btn.disabled = false; btn.textContent = 'Simpan surat masuk'; return; }
+      seq.SM++;
+      const s = { id: SM.length + 1, agenda: no, tglSurat: f.tglSurat.value, terima: f.terima.value, asal: f.asal.value.trim(), nomor: f.nomor.value.trim(), perihal: f.perihal.value.trim(), sifat: f.sifat.value, status: 'Diterima', disp: [], berkas: file_nama || ('Pindaian_' + no.replace(/\W+/g, '_') + '.pdf'), file_id, file_url };
       try {
         const b = await api('tambah', { tabel: 'SuratMasuk', data: smKeServer(s) });
         if (b && b.id) { s._rid = b.id; s.id = b.id; }
