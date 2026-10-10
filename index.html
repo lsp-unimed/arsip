@@ -113,10 +113,18 @@
   const smDariServer = (r, dispSemua) => ({ _rid: r.id, id: r.id, agenda: r.agenda, tglSurat: tglId(r.tgl_surat), terima: tglId(r.terima), asal: r.asal || '', nomor: r.nomor || '', perihal: r.perihal || '', sifat: r.sifat || 'Biasa', status: r.status || 'Diterima', berkas: r.file_nama || ('Pindaian_' + String(r.agenda || '').replace(/\W+/g, '_') + '.pdf'), file_id: r.file_id || '', file_url: r.file_url || '', disp: (dispSemua || []).filter(x => String(x.surat_id) === String(r.id)).map(x => ({ _rid: x.id, tgl: tglId(x.tgl), ke: String(x.ke || '').split(',').map(s => s.trim()).filter(Boolean), instruksi: x.instruksi || '', catatan: x.catatan || '', batas: tglId(x.batas) })) });
   // muatData: tarik Dokumen+Revisi+SuratMasuk+Disposisi+Agenda+Log dari backend sekali saat shell.
   let DATA_OK = false;
+  async function muatKop() {
+    try {
+      const r = await api('list', { tabel: 'Kop', opsi: { per: 5 } });
+      const b = (r && r.baris && r.baris[0]) || null;
+      if (b) { ['l1', 'l2', 'l3', 'l4', 'l5', 'kota', 'jabatan', 'nama', 'nip'].forEach(k => { if (b[k] != null && String(b[k]) !== '') window.KOP[k] = b[k]; }); }
+    } catch (e) {}
+  }
   async function muatData() {
-    if (DATA_OK) return true;
+    if (DATA_OK) { await muatKop(); return true; }
     const ambil = async (tabel) => { try { const r = await api('list', { tabel, opsi: { per: 200 } }); return (r && r.baris) || []; } catch (e) { return []; } };
     const [dok, rev, sm, disp, ag, agB, lg] = await Promise.all([ambil('Dokumen'), ambil('Revisi'), ambil('SuratMasuk'), ambil('Disposisi'), ambil('Agenda'), ambil('AgendaButir'), ambil('Log')]);
+    await muatKop();
     if (dok.length || sm.length || ag.length) {
       DOCS = dok.map(dokDariServer);
       // tempel riwayat revisi per dokumen
