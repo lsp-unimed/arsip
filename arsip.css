@@ -13,8 +13,8 @@ h1, h2, h3 { margin: 0 0 .4em; line-height: 1.2; letter-spacing: -.015em; }
 h1 { font-size: 1.45rem; } h2 { font-size: 1.15rem; } h3 { font-size: 1rem; }
 
 /* Login */
-.login { min-height: calc(100vh - 28px); display: grid; grid-template-columns: 1fr 1fr; }
-.login .art { background: var(--ink); color: #fff; padding: 56px; display: flex; flex-direction: column; justify-content: space-between; }
+.login { min-height: 100vh; display: grid; grid-template-columns: 1fr 1fr; }
+.login .art { background: var(--ink); color: #fff; padding: 56px; display: flex; flex-direction: column; justify-content: space-between; min-height: 100vh; }
 .login .art h1 { font-size: 2.2rem; max-width: 14ch; }
 .login .art p { color: #b9c0cc; max-width: 46ch; }
 .login .art ul { color: #dfe3ea; padding-left: 1.1em; }
@@ -22,7 +22,7 @@ h1 { font-size: 1.45rem; } h2 { font-size: 1.15rem; } h3 { font-size: 1rem; }
 .login form img { height: 64px; width: auto; }
 
 /* Shell */
-.shell { display: grid; grid-template-columns: 250px minmax(0, 1fr); min-height: calc(100vh - 28px); }
+.shell { display: grid; grid-template-columns: 250px minmax(0, 1fr); min-height: 100vh; }
 .side { background: var(--ink); color: #cdd2db; padding: 18px 12px; display: flex; flex-direction: column; gap: 4px; position: sticky; top: 0; height: 100vh; overflow: auto; }
 .side .brand { display: flex; gap: 10px; align-items: center; padding: 4px 8px 16px; color: #fff; }
 .side .brand img { height: 36px; background: #fff; border-radius: 8px; padding: 3px; }
