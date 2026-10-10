@@ -482,9 +482,16 @@
   }
 
   /* ---------- Templat ---------- */
-  function vTemplat(v, T) {
+  async function vTemplat(v, T) {
     T.textContent = 'Templat dokumen';
     const K = window.KOP;
+    // Samakan tampilan dengan tab Kop di sheet: muat baris Kop dari backend (publik).
+    let kopId = '';
+    try {
+      const r = await api('list', { tabel: 'Kop', opsi: { per: 5 } });
+      const b = (r && r.baris && r.baris[0]) || null;
+      if (b) { kopId = b.id || ''; ['l1', 'l2', 'l3', 'l4', 'l5', 'kota', 'jabatan', 'nama', 'nip'].forEach(k => { if (b[k] != null && String(b[k]) !== '') K[k] = b[k]; }); }
+    } catch (e) { /* offline: pakai bawaan */ }
     const tplLihat = window.TEMPLAT.filter(t => bolehUbahKat(t.kat));
     const kelolaKop = bolehKelolaKop();
     v.innerHTML = `<p class="muted lead">Pilih templat, isi formulir singkat, dan dokumen tersusun lengkap dengan kop surat, nomor manual sesuai buku agenda, dan blok tanda tangan. Hasilnya dapat dicetak atau disimpan sebagai PDF.${tplLihat.length < window.TEMPLAT.length ? ' Templat di luar kategori Anda disembunyikan.' : ''}</p>
@@ -498,7 +505,18 @@
       <div class="note" style="margin-top:14px"><b>Rencana versi akhir:</b> setiap templat disimpan sebagai berkas Google Docs berisi penanda seperti {{nomor}} dan {{perihal}}. Saat petugas menekan Simpan, sistem menyalin templat, mengisi penanda, lalu menyimpan versi PDF ke folder arsip. Templat baru cukup dibuat di Google Docs tanpa mengubah kode.</div>`;
     v.querySelectorAll('[data-t]').forEach(b => b.onclick = () => { const t = window.TEMPLAT.find(x => x.id === b.dataset.t); if (!bolehUbahKat(t.kat)) { toast('Templat ini di luar kategori Anda'); return; } window.bukaTemplat(b.dataset.t, API); });
     const fk = document.getElementById('fKop');
-    if (fk) fk.onsubmit = (e) => { e.preventDefault(); if (!bolehKelolaKop()) { toast('Hanya Admin atau Sekretariat yang dapat mengubah kop'); return; } Array.from(fk.elements).forEach(x => { if (x.name) K[x.name] = x.value.trim(); }); catat('Mengubah pengaturan kop surat'); toast('Pengaturan kop surat disimpan'); };
+    if (fk) fk.onsubmit = async (e) => {
+      e.preventDefault(); if (!bolehKelolaKop()) { toast('Hanya Admin atau Sekretariat yang dapat mengubah kop'); return; }
+      const isi = {}; Array.from(fk.elements).forEach(x => { if (x.name) { K[x.name] = x.value.trim(); isi[x.name] = x.value.trim(); } });
+      const btn = fk.querySelector('button[type=submit]'); if (btn) { btn.disabled = true; btn.textContent = 'Menyimpan…'; }
+      try {
+        if (kopId) await api('ubah', { tabel: 'Kop', id: kopId, data: isi });
+        else { const b = await api('tambah', { tabel: 'Kop', data: isi }); kopId = (b && b.id) || kopId; }
+        try { Object.assign(window.KOP, K); } catch (err) {}
+        catat('Mengubah pengaturan kop surat'); toast('Pengaturan kop tersimpan & tampil di semua templat');
+      } catch (err) { toast(err.message + ' — tersimpan sementara di browser saja'); }
+      if (btn) { btn.disabled = false; btn.textContent = 'Simpan pengaturan'; }
+    };
   }
 
   function vAktivitas(v, T) {

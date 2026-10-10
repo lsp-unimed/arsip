@@ -859,6 +859,7 @@ function hapusCache(nama) { CacheService.getScriptCache().remove('list:' + nama)
 function siapkanSheet() {
   Object.keys(SKEMA).forEach(function (n) { sheetTabel(n); });
   migrasiPengguna_();
+  migrasiKop_();
   Logger.log('Siap: ' + Object.keys(SKEMA).join(', '));
 }
 
@@ -882,6 +883,27 @@ function migrasiPengguna_() {
   var pesan = 'Migrasi Pengguna: ' + isi + ' username diisi, ' + pasangY + ' status Y→YA. Akun contoh belum bisa login sebelum diberi sandi via Reset sandi.';
   Logger.log(pesan);
   return pesan;
+}
+
+/** Melengkapi tab Kop: bila kosong, isi satu baris bawaan (nama ketua/NIP bisa diubah). */
+function migrasiKop_() {
+  var sh = sheetTabel('Kop');
+  var judul = judulKolom(sh);
+  if (sh.getLastRow() > 1) return 'Kop sudah ada.';
+  var bawaan = { l1: 'LEMBAGA SERTIFIKASI PROFESI', l2: 'UNIVERSITAS NEGERI MEDAN', l3: 'Sertifikat Lisensi Nomor : BNSP-LSP-1928-ID', l4: 'Sekretariat: Gedung FT, Jl. Willem Iskandar Pasar V, Medan Estate, Medan, 20221', l5: 'Website : https://lsp.unimed.ac.id', kota: 'Medan', jabatan: 'Ketua LSP Universitas Negeri Medan', nama: 'Nama Ketua LSP', nip: 'NIP. 19xxxxxxxxxxxxxxxx' };
+  var bar = ['kop1', new Date().toISOString(), '', ''];
+  judul.slice(3).forEach(function () { bar.push(''); });
+  sh.getRange('A:Z').setNumberFormat('@');
+  // petakan kolom Kop ke baris baru
+  var nilai = judul.map(function (j) {
+    if (j === 'id') return 'kop1';
+    if (j === 'dibuat') return new Date().toISOString();
+    if (j === 'diubah') return '';
+    return bawaan[j] != null ? bawaan[j] : '';
+  });
+  sh.appendRow(nilai);
+  Logger.log('Kop bawaan dibuat di tab Kop.');
+  return 'Kop bawaan dibuat.';
 }
 
 function amankanSel(v) { return /^[=+\-@]/.test(v) ? "'" + v : v; }
