@@ -35,7 +35,7 @@
   // Panggil backend (POST text/plain agar lolos CORS Apps Script).
   async function api(aksi, isi) {
     isi = isi || {};
-    if (SESI && SESI.token) isi.token = SESI.token;
+    if (SESI && SESI.token) { isi.token = SESI.token; try { window.__tokenTerakhir = SESI.token; } catch (e) {} }
     let r;
     try {
       r = await fetch(API_URL, { method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' }, body: JSON.stringify(Object.assign({ aksi }, isi)) });
@@ -322,7 +322,7 @@
       VIEW = b.dataset.v; FK = b.dataset.k || ''; document.body.classList.remove('nav-open'); render(); window.scrollTo(0, 0);
     });
     document.getElementById('menu').onclick = () => document.body.classList.toggle('nav-open');
-    document.getElementById('out').onclick = async (e) => { e.preventDefault(); try { await api('logout'); } catch (err) {} keluarLokal(); PERAN_AKTIF = ''; login(); };
+    document.getElementById('out').onclick = (e) => { e.preventDefault(); const t = (SESI && SESI.token) || ''; keluarLokal(); PERAN_AKTIF = ''; DATA_OK = false; login(); try { if (t && navigator.sendBeacon) navigator.sendBeacon(API_URL, JSON.stringify({ aksi: 'logout', token: t })); } catch (err) {} };
     document.getElementById('ganti').onclick = (e) => { e.preventDefault(); pergi('pengguna'); };
     document.getElementById('add').onclick = () => pilih();
     render();
