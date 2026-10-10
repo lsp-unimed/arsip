@@ -198,6 +198,9 @@
     }
   ];
   window.TEMPLAT = TEMPLAT;
+  window.TEMPLAT_KUSTOM = [];
+  // Helper untuk perender kustom (dipakai menu Kelola Templat di index.html).
+  window._tplHelp = { esc, kop, judulTengah, para, ol, lines, rows, meta, ttd, ttd2, tglPanjang, hariTgl, tglTerbilang, KOPaktif, PENANDATANGAN };
 
   /* Nilai bawaan sebuah templat, ditimpa oleh data yang tersimpan */
   const bawaan = (t, hariIni) => {
@@ -207,6 +210,8 @@
     return o;
   };
   window.susunDokumen = (id, data, nomor, hariIni) => {
+    const kc = (window.TEMPLAT_KUSTOM || []).find(x => x.id === id);
+    if (kc) { if (window.tplKustomRender) return window.tplKustomRender(kc, data || {}, nomor); return '<p>Templat kustom belum termuat. Muat ulang halaman.</p>'; }
     const t = TEMPLAT.find(x => x.id === id); if (!t) return '';
     const aw = bawaan(t, hariIni), d = Object.assign({}, aw, data || {});
     // Dokumen lama tanpa nama ketua: tempel nama terbaru dari sheet agar tak "konstanta".
@@ -283,6 +288,8 @@
 
   /* ---------- Editor templat: formulir + pratinjau A4 langsung ---------- */
   window.bukaTemplat = (id, API, ada) => {
+    const kc0 = (window.TEMPLAT_KUSTOM || []).find(x => x.id === id);
+    if (kc0) { if (window.bukaTemplatKustom) { window.bukaTemplatKustom(id, API, ada); return; } }
     const t = TEMPLAT.find(x => x.id === id); if (!t) return;
     ada = ada || null;
     const wb = bawaan(t, API.hariIni), data = Object.assign({}, wb, ada ? ada.data : {});

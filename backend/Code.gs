@@ -135,6 +135,18 @@ var SKEMA = {
     },
     izin: { list: 'publik', ambil: 'publik', tambah: 'admin', ubah: 'admin', hapus: 'admin' }
   },
+  TemplatKustom: {
+    kolom: ['tpl_id', 'nama', 'kode', 'kat', 'ket', 'surat', 'definisi'],
+    publik: ['tpl_id', 'nama', 'kode', 'kat', 'ket', 'surat', 'definisi'],
+    aturan: {
+      tpl_id: { wajib: true, maks: 40, pesan: 'tpl_id wajib diisi.' },
+      nama: { wajib: true, maks: 120, pesan: 'Nama templat wajib diisi.' },
+      kode: { maks: 10 },
+      definisi: { maks: 20000 },
+      kat: { pilihan: ['LIS', 'MUT', 'SKM', 'ASR', 'TUK', 'ASM', 'MNJ', 'KOR'], pesan: 'Kategori tidak dikenal.' }
+    },
+    izin: { list: 'publik', ambil: 'publik', tambah: 'admin', ubah: 'admin', hapus: 'admin' }
+  },
   Kop: {
     kolom: ['l1', 'l2', 'l3', 'l4', 'l5', 'kota', 'jabatan', 'nama', 'nip'],
     publik: ['l1', 'l2', 'l3', 'l4', 'l5', 'kota', 'jabatan', 'nama', 'nip'],
