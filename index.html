@@ -9,18 +9,19 @@
   <link rel="preconnect" href="https://script.google.com"><link rel="preconnect" href="https://script.googleusercontent.com" crossorigin>
   <link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="arsip.css?v=2">
+  <link rel="stylesheet" href="arsip.css?v=3">
 </head>
 <body>
 <div id="app"></div>
 
-<script src="templat.js?v=3"></script>
+<script src="templat.js?v=4"></script>
 <!-- Kelola Templat DIMATIKAN sementara (2026-10-10, atas permintaan Pak Boss): script kustom tidak dimuat, tombol + daftar kustom disembunyikan. File templatkustom.js + sheet TemplatKustom tetap ada, tinggal aktifkan lagi bila diminta. -->
 <!-- <script src="templatkustom.js?v=1"></script> -->
 <script>
 (function () {
   'use strict';
-  const HARI_INI = '2026-10-10';
+  // Tanggal hari ini menurut WIB (otomatis, bukan tanggal tetap).
+  const HARI_INI = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Jakarta', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date());
   const esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
   const BLN = ['Jan', 'Feb', 'Mar', 'Apr', 'Mei', 'Jun', 'Jul', 'Agu', 'Sep', 'Okt', 'Nov', 'Des'];
   const tgl = (s) => { if (!s) return '—'; const [y, m, d] = s.split('-').map(Number); return d + ' ' + BLN[m - 1] + ' ' + y; };
@@ -31,11 +32,13 @@
   const PER = 10;
   const API_URL = 'https://script.google.com/macros/s/AKfycby9YSQGGju1QDabN1FrdZrRyQLkDMa4ILFF6xqDechI0Al_ts_3vLYnUcLOjWLn0Rye/exec';
   let SESI = null; // {token, username, nama, peran}
+  let CATATAN = ''; // teks aktivitas yang ikut terkirim bersama simpan berikutnya (tanpa panggilan Log terpisah)
 
   // Panggil backend (POST text/plain agar lolos CORS Apps Script).
   async function api(aksi, isi) {
     isi = isi || {};
     if (SESI && SESI.token) { isi.token = SESI.token; try { window.__tokenTerakhir = SESI.token; } catch (e) {} }
+    if (CATATAN && ['tambah', 'ubah', 'hapus', 'batch'].includes(aksi) && !isi.catatan) { isi.catatan = CATATAN; CATATAN = ''; }
     let r;
     try {
       r = await fetch(API_URL, { method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' }, body: JSON.stringify(Object.assign({ aksi }, isi)) });
@@ -51,7 +54,12 @@
   }
   const simpanSesi = () => { try { (SESI && SESI.ingat ? localStorage : sessionStorage).setItem('arsip_sesi', JSON.stringify(SESI)); (SESI && SESI.ingat ? sessionStorage : localStorage).removeItem('arsip_sesi'); } catch (e) {} };
   const muatSesi = () => { try { return JSON.parse(localStorage.getItem('arsip_sesi') || sessionStorage.getItem('arsip_sesi') || 'null'); } catch (e) { return null; } };
-  const keluarLokal = () => { SESI = null; try { localStorage.removeItem('arsip_sesi'); sessionStorage.removeItem('arsip_sesi'); } catch (e) {} };
+  const keluarLokal = () => { hapusSnapshot(); SESI = null; try { localStorage.removeItem('arsip_sesi'); sessionStorage.removeItem('arsip_sesi'); } catch (e) {} };
+  // Salinan data terakhir agar panel langsung tampil saat dibuka ulang (diperbarui dari server di belakang).
+  const kunciSnap = () => 'arsip_snap_' + ((SESI && SESI.username) || '');
+  const simpanSnapshot = (d) => { try { if (!SESI) return; (SESI.ingat ? localStorage : sessionStorage).setItem(kunciSnap(), JSON.stringify({ t: Date.now(), d })); } catch (e) { /* penyimpanan penuh: abaikan */ } };
+  const bacaSnapshot = () => { try { const x = JSON.parse(localStorage.getItem(kunciSnap()) || sessionStorage.getItem(kunciSnap()) || 'null'); return x && x.d && Date.now() - x.t < 7 * 86400000 ? x.d : null; } catch (e) { return null; } };
+  const hapusSnapshot = () => { try { [localStorage, sessionStorage].forEach(st => Object.keys(st).filter(k => k.indexOf('arsip_snap_') === 0).forEach(k => st.removeItem(k))); } catch (e) {} };
 
   /* ---------- Kategori & data contoh ---------- */
   const KAT = [
@@ -130,6 +138,7 @@
     } catch (e) {}
   }
   function terapkanDasbor(d) {
+    if (d.saya && SESI) { SESI.nama = d.saya.nama; SESI.peran = d.saya.peran; PERAN_AKTIF = d.saya.peran; simpanSesi(); }
     const dok = d.dok || [], rev = d.rev || [], sm = d.sm || [], disp = d.disp || [], ag = d.ag || [], agB = d.agB || [], lg = d.log || [];
     muatKopDari(d.kop);
     DOCS = dok.map(dokDariServer);
@@ -150,7 +159,7 @@
     // Jalur cepat ala SIPINTAR: 1 panggilan dasbor utk semua tabel (auth 1x di server).
     try {
       const d = await api('dasbor');
-      if (d && ('dok' in d || 'sm' in d || 'ag' in d)) { terapkanDasbor(d); return DATA_OK; }
+      if (d && ('dok' in d || 'sm' in d || 'ag' in d)) { terapkanDasbor(d); simpanSnapshot(d); return DATA_OK; }
     } catch (e) { /* backend lama: lanjut jalur lama */ }
     const ambil = async (tabel) => { try { const r = await api('list', { tabel, opsi: { per: 200 } }); return (r && r.baris) || []; } catch (e) { return []; } };
     const [dok, rev, sm, disp, ag, agB, lg] = await Promise.all([ambil('Dokumen'), ambil('Revisi'), ambil('SuratMasuk'), ambil('Disposisi'), ambil('Agenda'), ambil('AgendaButir'), ambil('Log')]);
@@ -188,15 +197,64 @@
   const smB = { Diterima: 'warn', Didisposisi: 'info', Selesai: 'ok' };
   // Cari toleran: id backend kini string UUID, pemanggil lama pakai +id (angka).
   // Bandingkan sebagai string + fallback ke _rid/kode/agenda agar popup selalu ketemu.
-  const cariDok = (id) => DOCS.find(x => String(x.id) === String(id) || (x._rid && String(x._rid) === String(id)) || (x.kode && String(x.kode) === String(id)));
-  const cariSM = (id) => SM.find(x => String(x.id) === String(id) || (x._rid && String(x._rid) === String(id)) || (x.agenda && String(x.agenda) === String(id)));
-  const cariAgenda = (id) => AGENDA.find(x => String(x.id) === String(id) || (x._rid && String(x._rid) === String(id)));
+  const cariDok = (id) => DOCS.find(x => String(x.id) === String(id) || (x._lokal != null && String(x._lokal) === String(id)) || (x._rid && String(x._rid) === String(id)) || (x.kode && String(x.kode) === String(id)));
+  const cariSM = (id) => SM.find(x => String(x.id) === String(id) || (x._lokal != null && String(x._lokal) === String(id)) || (x._rid && String(x._rid) === String(id)) || (x.agenda && String(x.agenda) === String(id)));
+  const cariAgenda = (id) => AGENDA.find(x => String(x.id) === String(id) || (x._lokal != null && String(x._lokal) === String(id)) || (x._rid && String(x._rid) === String(id)));
   const LOG = [];
-  const catat = (m, siapa) => { LOG.unshift([jam(), siapa || PERAN_AKTIF, m]); try { api('tambah', { tabel: 'Log', data: { aksi: m } }).catch(() => {}); } catch (e) {} };
+  // Catat aktivitas: teks dititipkan ke panggilan simpan berikutnya (server yang menulis Log).
+  // Bila tidak ada simpan yang menyusul (mis. mencetak), dikirim sendiri lewat aksi 'catat'.
+  const catat = (m, siapa) => {
+    LOG.unshift([jam(), siapa || PERAN_AKTIF, m]); CATATAN = m;
+    setTimeout(() => { if (CATATAN === m) { CATATAN = ''; api('catat', { data: { pesan: m } }).catch(() => {}); } }, 0);
+  };
   // Simpan latar: UI diperbarui dulu, server menyusul diam-diam (tanpa await).
-  const latar = (p, gagal) => { try { Promise.resolve(p).catch(e => toast(((e && e.message) || gagal || 'Gagal menyimpan ke server') + ' — tersimpan di layar')); } catch (e) {} };
+  // Simpan latar: layar diperbarui dulu, server menyusul. Status tampil di pojok; bila gagal muncul
+  // peringatan yang tetap terlihat dengan tombol Coba lagi (data belum aman sebelum tersimpan).
+  let SIMPAN_JALAN = 0;
+  const GAGAL = [];
+  const statusSimpan = () => {
+    const el = document.getElementById('simpanSt'); if (!el) return;
+    clearTimeout(el._t);
+    if (SIMPAN_JALAN > 0) { el.className = 'simpan on'; el.textContent = 'Menyimpan…'; }
+    else if (el.classList.contains('on')) { el.className = 'simpan ok'; el.textContent = 'Tersimpan'; el._t = setTimeout(() => { el.className = 'simpan'; el.textContent = ''; }, 2500); }
+    gambarGagal();
+  };
+  const gambarGagal = () => {
+    const bar = document.getElementById('gagalBar'); if (!bar) return;
+    bar.hidden = !GAGAL.length;
+    bar.innerHTML = GAGAL.length ? `<div><b>${GAGAL.length} perubahan belum tersimpan ke server.</b> ${esc(GAGAL[GAGAL.length - 1].pesan)}</div><div class="acts" style="margin:0"><button class="btn" type="button" data-g="ulang">Coba lagi</button><button class="btn ghost" type="button" data-g="muat">Muat ulang data</button></div>` : '';
+  };
+  // Antrean berurutan: simpan berikutnya menunggu yang sebelumnya, sehingga data baru sudah punya
+  // ID server sebelum diubah/didisposisi (tidak ada perubahan yang hilang karena terlalu cepat).
+  let ANTRIAN = Promise.resolve();
+  const latar = (fn, gagal) => {
+    const jalan = () => {
+      SIMPAN_JALAN++; statusSimpan();
+      // Teks catatan aktivitas diambil sekarang (bukan saat antrean berjalan) dan dipakai lagi bila diulang.
+      if (jalan.cat === undefined) { jalan.cat = CATATAN; CATATAN = ''; }
+      const p = ANTRIAN.then(() => { CATATAN = jalan.cat; try { return typeof fn === 'function' ? fn() : fn; } finally { CATATAN = ''; } });
+      ANTRIAN = p.catch(() => {});
+      return p.then(r => { SIMPAN_JALAN--; statusSimpan(); return r; }, e => {
+        SIMPAN_JALAN--;
+        if (!/Sesi berakhir/i.test((e && e.message) || '')) GAGAL.push({ pesan: (gagal ? gagal + ': ' : '') + ((e && e.message) || 'Gagal menyimpan ke server'), ulang: typeof fn === 'function' ? jalan : null });
+        statusSimpan();
+      });
+    };
+    return jalan();
+  };
+  window.addEventListener('beforeunload', (e) => { if (SIMPAN_JALAN > 0 || GAGAL.length) { e.preventDefault(); e.returnValue = ''; } });
+  // Beberapa perubahan dalam satu panggilan; bila server belum diperbarui, dikirim satu per satu.
+  const kirimBatch = async (ops) => {
+    try { return await api('batch', { data: { ops } }); }
+    catch (e) {
+      if (!/tidak dikenal|Tabel ""/i.test(e.message)) throw e;
+      const hasil = [];
+      for (const o of ops) hasil.push(await api(o.aksi, { tabel: o.tabel, id: o.id, data: o.data }));
+      return hasil;
+    }
+  };
   const smKeServer = (s) => ({ agenda: s.agenda, tgl_surat: s.tglSurat || '', terima: s.terima || '', asal: s.asal || '', nomor: s.nomor || '', perihal: s.perihal || '', sifat: s.sifat || 'Biasa', status: s.status || 'Diterima', arsip: s.arsip ? 'YA' : '', file_id: s.file_id || '', file_nama: s.berkas || '', file_url: s.file_url || '' });
-  const simpanDokBackend = (d) => { if (d && d._rid) latar(api('ubah', { tabel: 'Dokumen', id: d._rid, data: dokKeServer(d) }), 'Perubahan dokumen'); };
+  const simpanDokBackend = (d) => { if (d && (d._rid || d._siap)) latar(() => api('ubah', { tabel: 'Dokumen', id: d._rid, data: dokKeServer(d) }), 'Perubahan dokumen'); };
 
   /* ---------- Peran & hak akses (demo frontend; versi akhir disaring di backend) ----------
      Ketua/Admin/Sekretariat: semua kategori. Bidang & Administrasi: ubah hanya
@@ -228,11 +286,47 @@
   const FL = {}; // filter per tampilan: { q, st, dari, sampai, pg }
   const fl = () => (FL[VIEW + FK] = FL[VIEW + FK] || { q: '', st: '', dari: '', sampai: '', pg: 1 });
   const toast = (m) => { const t = document.createElement('div'); t.className = 'toast'; t.textContent = m; document.body.appendChild(t); setTimeout(() => t.remove(), 2800); };
+  const adaBerkas = (x) => !!(x && (x.file_id || x.file_url));
+  // Berkas arsip privat: diambil lewat server (hak akses diperiksa), lalu dibuka di tab baru.
+  async function bukaBerkas(x) {
+    if (!x) return;
+    if (!x.file_id) { if (x.file_url) window.open(x.file_url, '_blank', 'noopener'); return; }
+    const w = window.open('', '_blank');
+    try { if (w) w.document.write('<p style="font-family:system-ui,sans-serif;padding:24px">Membuka berkas…</p>'); } catch (e) {}
+    try {
+      const f = await api('lihatBerkas', { data: { file_id: x.file_id } });
+      const bin = atob(f.base64), u8 = new Uint8Array(bin.length);
+      for (let i = 0; i < bin.length; i++) u8[i] = bin.charCodeAt(i);
+      const url = URL.createObjectURL(new Blob([u8], { type: f.mime }));
+      if (w && /^(application\/pdf|image\/)/.test(f.mime)) w.location.href = url;
+      else { if (w) w.close(); const a = document.createElement('a'); a.href = url; a.download = f.nama; document.body.appendChild(a); a.click(); a.remove(); }
+      setTimeout(() => URL.revokeObjectURL(url), 120000);
+    } catch (e) {
+      if (x.file_url && /tidak dikenal|Tabel ""/i.test(e.message)) { if (w) w.location.href = x.file_url; else window.open(x.file_url, '_blank', 'noopener'); return; }
+      if (w) w.close(); toast(e.message);
+    }
+  }
+  // Dialog konfirmasi & isian bergaya aplikasi (pengganti confirm/prompt bawaan browser).
+  const tanya = (pesan, ya) => new Promise(res => {
+    document.body.insertAdjacentHTML('beforeend', `<div class="dlg-back"><div class="dlg" role="alertdialog" aria-modal="true"><p>${esc(pesan)}</p><div class="acts"><button class="btn ghost" type="button" data-r="0">Batal</button><button class="btn" type="button" data-r="1">${esc(ya || 'Hapus')}</button></div></div></div>`);
+    const b = document.body.lastElementChild, selesai = (v) => { b.remove(); res(v); };
+    b.querySelector('[data-r="0"]').focus();
+    b.addEventListener('click', (e) => { const t = e.target.closest('[data-r]'); if (t) selesai(t.dataset.r === '1'); else if (e.target === b) selesai(false); });
+    b.addEventListener('keydown', (e) => { if (e.key === 'Escape') selesai(false); });
+  });
+  const isian = (pesan, jenis) => new Promise(res => {
+    document.body.insertAdjacentHTML('beforeend', `<div class="dlg-back"><form class="dlg form"><label class="f">${esc(pesan)}<input name="v" type="${jenis || 'text'}" required ${jenis === 'password' ? 'minlength="8" autocomplete="new-password"' : ''}></label><div class="acts"><button class="btn ghost" type="button" data-r="0">Batal</button><button class="btn" type="submit">Simpan</button></div></form></div>`);
+    const b = document.body.lastElementChild, f = b.querySelector('form'), selesai = (v) => { b.remove(); res(v); };
+    f.v.focus();
+    f.onsubmit = (e) => { e.preventDefault(); selesai(f.v.value); };
+    b.addEventListener('click', (e) => { if (e.target.closest('[data-r="0"]') || e.target === b) selesai(null); });
+    b.addEventListener('keydown', (e) => { if (e.key === 'Escape') selesai(null); });
+  });
   const htmlDok = (d) => d.tpl ? window.susunDokumen(d.tpl.id, d.tpl.data, d.kode, HARI_INI) : '';
   const drawer = (inner) => {
     document.body.insertAdjacentHTML('beforeend', `<div class="drawer-back"><div class="drawer" role="dialog" aria-modal="true"><button class="x" aria-label="Tutup">×</button>${inner}</div></div>`);
     const back = document.body.lastElementChild;
-    back.addEventListener('click', (e) => { if (e.target === back || e.target.closest('.x')) back.remove(); });
+    back.addEventListener('click', (e) => { if (e.target === back || e.target.closest('.x')) { back.remove(); if (PERLU_SEGAR) { PERLU_SEGAR = false; shell(); } } });
     return back;
   };
   const tutupDrawer = () => document.querySelectorAll('.drawer-back').forEach(x => x.remove());
@@ -241,9 +335,10 @@
   // Toolbar standar: cari, status, rentang tanggal, ekspor
   const toolbar = (f, opsiStatus, ph, extra) => `<div class="toolbar">
       <input id="q" type="search" placeholder="${esc(ph)}" value="${esc(f.q)}">
-      <select id="fs"><option value="">Semua status</option>${opsiStatus.map(s => `<option ${f.st === s ? 'selected' : ''}>${s}</option>`).join('')}</select>
+      <button class="btn ghost tb-filter" type="button" aria-expanded="false">Filter${f.st || f.dari || f.sampai ? ' •' : ''}</button>${extra || ''}
+      <div class="tb-more"><select id="fs" aria-label="Status"><option value="">Semua status</option>${opsiStatus.map(s => `<option ${f.st === s ? 'selected' : ''}>${s}</option>`).join('')}</select>
       <label class="dt">Dari<input type="date" id="fd" value="${f.dari}"></label><label class="dt">Sampai<input type="date" id="fe" value="${f.sampai}"></label>
-      <button class="btn ghost" id="ex" type="button">Ekspor Excel</button>${extra || ''}</div>`;
+      <button class="btn ghost" id="ex" type="button">Ekspor Excel</button></div></div>`;
   const ikatToolbar = (f, draw) => {
     const set = (k) => (e) => { f[k] = e.target.value; f.pg = 1; draw(); };
     document.getElementById('q').oninput = set('q'); document.getElementById('fs').onchange = set('st');
@@ -266,13 +361,26 @@
   };
 
   /* ---------- Login & kerangka ---------- */
+  const tampilMemuat = () => { app.innerHTML = `<div class="memuat"><img src="assets/img/logo-lsp.png" alt=""><p>Memuat data arsip…</p><div class="bar"><i></i></div></div>`; };
+  const tandaiMemperbarui = (on) => { document.body.classList.toggle('memperbarui', !!on); const el = document.getElementById('simpanSt'); if (el && on && !SIMPAN_JALAN) { el.className = 'simpan on'; el.textContent = 'Memperbarui…'; } else if (el && !on && !SIMPAN_JALAN) { el.className = 'simpan'; el.textContent = ''; } };
+  // Gambar ulang dengan data terbaru tanpa mengganggu formulir/editor yang sedang terbuka.
+  const segarkan = () => { if (document.querySelector('.drawer-back, .editor, .dlg-back')) { PERLU_SEGAR = true; return; } shell(); };
+  let PERLU_SEGAR = false;
   let PESAN_LOGIN = '';
   function login(pesan) {
     if (pesan) PESAN_LOGIN = pesan;
     // Coba pulihkan sesi tersimpan (seperti SIPINTAR: ingat saya 7 hari).
     if (!SESI) {
       const s = muatSesi();
-      if (s && s.token) { SESI = s; PERAN_AKTIF = s.peran; api('saya').then(async () => { try { await muatData(); } catch (err) {} VIEW = 'ringkasan'; FK = ''; shell(); }).catch(() => { keluarLokal(); login(); }); return; }
+      if (s && s.token) {
+        SESI = s; PERAN_AKTIF = s.peran; VIEW = 'ringkasan'; FK = '';
+        const snap = bacaSnapshot();
+        if (snap) { terapkanDasbor(snap); shell(); tandaiMemperbarui(true); } else tampilMemuat();
+        // Satu panggilan: dasbor sekaligus memeriksa sesi.
+        api('dasbor').then(d => { terapkanDasbor(d); simpanSnapshot(d); tandaiMemperbarui(false); segarkan(); })
+          .catch((err) => { if (!SESI) return; tandaiMemperbarui(false); if (!snap) { app.innerHTML = ''; login(err.message); } else toast(err.message); });
+        return;
+      }
     }
     app.innerHTML = `<div class="login"><div class="art"><div><h1>Arsip dokumen LSP UNIMED</h1><p>Ruang kerja petugas untuk membuat, mencatat, menyimpan, dan menemukan kembali seluruh dokumen lembaga — dari surat undangan sampai berita acara asesmen.</p>
       <ul><li>Buat surat dan dokumen dari templat berkop, nomor surat ketik manual</li><li>Atau unggah berkas yang sudah jadi</li><li>Surat masuk dengan disposisi, surat keluar dengan alur pengesahan</li><li>Riwayat revisi, pengingat masa berlaku, dan agenda terdekat</li></ul></div><p style="font-size:.85rem">Akses khusus petugas LSP. Satu akun satu peran; akun dibuat oleh Admin.</p></div>
@@ -285,10 +393,11 @@
       const btn = document.getElementById('bMasuk'), info = document.getElementById('loginInfo');
       btn.disabled = true; btn.textContent = 'Memeriksa…'; info.textContent = 'Menghubungkan…';
       try {
-        const d = await api('login', { data: { username: f.u.value.trim(), password: f.p.value, ingat: f.ingat.checked } });
+        const d = await api('login', { data: { username: f.u.value.trim(), password: f.p.value, ingat: f.ingat.checked, awal: true } });
         SESI = Object.assign({}, d.user, { token: d.token, ingat: f.ingat.checked }); simpanSesi();
         PERAN_AKTIF = d.user.peran; VIEW = 'ringkasan'; FK = ''; info.textContent = 'Memuat data…';
-        try { await muatData(); } catch (err) {}
+        // Data panel ikut dalam jawaban login (tanpa panggilan kedua); cadangan ke dasbor bila backend lama.
+        if (d.awal) { terapkanDasbor(d.awal); simpanSnapshot(d.awal); } else { try { await muatData(); } catch (err) {} }
         shell();
       } catch (err) { info.textContent = err.message; btn.disabled = false; btn.textContent = 'Masuk'; }
     };
@@ -312,14 +421,15 @@
       <button data-v="keluar">Surat keluar <span class="n${skTunggu ? ' hot' : ''}">${skTunggu}</span></button>
       <button data-v="templat">Templat dokumen</button>
       <button data-v="pedoman">Pedoman penomoran</button>
-      <div class="grp">Kategori</div>
-      ${katLihat.map(k => `<button data-v="dokumen" data-k="${k[0]}">${esc(k[1])} <span class="n">${n(k[0])}</span></button>`).join('')}
+      <button type="button" class="grp grp-t" id="grpKat" aria-expanded="${katBuka()}">Kategori <span aria-hidden="true">${katBuka() ? '▾' : '▸'}</span></button>
+      <div class="grp-isi"${katBuka() ? '' : ' hidden'}>${katLihat.map(k => `<button data-v="dokumen" data-k="${k[0]}">${esc(k[1])} <span class="n">${n(k[0])}</span></button>`).join('')}</div>
       <div class="grp">Lainnya</div>
       <button data-v="aktivitas">Riwayat aktivitas</button>
       <button data-v="pengguna">Pengguna & hak akses</button>
       <div class="foot">Masuk sebagai <b style="color:#fff">${esc((SESI && SESI.nama) || PERAN_AKTIF)}</b> <span class="muted">@${esc((SESI && SESI.username) || '')} · ${esc(PERAN_AKTIF)}</span><br><a href="#" id="out">Keluar</a> · <a href="https://lsp-unimed.github.io/laman-utama-demo/">Situs LSP</a><br><a href="#" id="ganti" style="font-size:.82rem">Ganti password</a></div>
-    </aside><div class="main"><div class="top"><div style="display:flex;gap:10px;align-items:center;min-width:0"><button class="menu" id="menu" aria-label="Menu">☰</button><h1 id="title" style="margin:0"></h1></div><button class="btn" id="add">+ Dokumen baru</button></div><div id="view"></div></div></div>`;
+    </aside><div class="main"><div class="top"><div class="top-l"><button class="menu" id="menu" aria-label="Buka menu">☰</button><h1 id="title"></h1></div><div class="top-r"><span id="simpanSt" class="simpan" aria-live="polite"></span><button class="btn" id="add" aria-label="Dokumen baru">+<span class="add-t"> Dokumen baru</span></button></div></div><div id="gagalBar" class="gagal" role="alert" hidden></div><div id="view"></div></div></div>`;
     document.getElementById('side').addEventListener('click', (e) => {
+      if (e.target.closest('#grpKat')) { const buka = !katBuka(); try { localStorage.setItem('arsip_katBuka', buka ? '1' : '0'); } catch (err) {} const g = document.getElementById('grpKat'); g.setAttribute('aria-expanded', buka); g.lastElementChild.textContent = buka ? '▾' : '▸'; g.nextElementSibling.hidden = !buka; return; }
       const b = e.target.closest('button[data-v]'); if (!b) return;
       VIEW = b.dataset.v; FK = b.dataset.k || ''; document.body.classList.remove('nav-open'); render(); window.scrollTo(0, 0);
     });
@@ -327,8 +437,18 @@
     document.getElementById('out').onclick = (e) => { e.preventDefault(); const t = (SESI && SESI.token) || ''; keluarLokal(); PERAN_AKTIF = ''; DATA_OK = false; login(); try { if (t && navigator.sendBeacon) navigator.sendBeacon(API_URL, JSON.stringify({ aksi: 'logout', token: t })); } catch (err) {} };
     document.getElementById('ganti').onclick = (e) => { e.preventDefault(); pergi('pengguna'); };
     document.getElementById('add').onclick = () => pilih();
+    document.getElementById('gagalBar').onclick = async (e) => {
+      const g = e.target.closest('[data-g]'); if (!g) return;
+      if (g.dataset.g === 'ulang') { const daftar = GAGAL.splice(0); gambarGagal(); daftar.forEach(x => { if (x.ulang) x.ulang(); }); }
+      else { GAGAL.length = 0; gambarGagal(); DATA_OK = false; tampilMemuat(); try { await muatData(); } catch (err) { toast(err.message); } shell(); }
+    };
+    // Filter di HP: tombol Filter membuka/menutup pilihan tambahan
+    document.getElementById('view').addEventListener('click', (e) => { const t = e.target.closest('.tb-filter'); if (!t) return; const tb = t.closest('.toolbar'); tb.classList.toggle('open'); t.setAttribute('aria-expanded', tb.classList.contains('open')); });
     render();
+    statusSimpan();
   }
+  // Grup Kategori di sidebar: tersimpan per perangkat; terbuka otomatis bila sedang di salah satu kategori.
+  function katBuka() { if (VIEW === 'dokumen' && FK) return true; try { const v = localStorage.getItem('arsip_katBuka'); if (v) return v === '1'; } catch (e) {} return window.innerWidth > 960; }
   const pergi = (v, k) => { VIEW = v; FK = k || ''; shell(); };
 
   function render() {
@@ -355,13 +475,13 @@
     v.innerHTML = `<p class="muted lead">Halo, <b>${esc(PERAN_AKTIF)}</b>. ${tugasSaya ? `Ada <b>${tugasSaya} tugas</b> menunggu Anda.` : 'Tidak ada tugas menunggu Anda.'}${['Ketua', 'Admin', 'Sekretariat'].includes(kunciPeran()) ? '' : ' Anda hanya dapat mengubah dokumen kategori Anda; dokumen lain tampil baca-saja.'}</p>
       ${saya.length || lewat.length || bolehSahkan() && skTunggu ? `<div class="panel" style="border-left:4px solid var(--red);margin-bottom:14px"><h2>Tugas saya</h2><ul class="list">${saya.map(s => `<li data-sm="${s.id}" style="cursor:pointer"><span><b>${esc(s.perihal)}</b><br><span class="muted" style="font-size:.82rem">Disposisi · ${esc(s.agenda)}${s.disp.some(x => x.batas && x.batas < HARI_INI) ? ' · <b style="color:var(--red)">lewat batas</b>' : ''}</span></span><span class="badge ${smB[s.status]}">${s.status}</span></li>`).join('')}${bolehSahkan() && skTunggu ? `<li><span><b>${skTunggu} surat menunggu pengesahan Ketua</b><br><span class="muted" style="font-size:.82rem">Buka Surat keluar → status Diajukan</span></span><span class="badge warn">Diajukan</span></li>` : ''}</ul></div>` : ''}
       <div class="grid g4" style="margin-bottom:14px">
-        <div class="panel stat"><b>${DOCS.filter(lihat).length}</b><span>dokumen dapat Anda lihat</span></div>
-        <div class="panel stat warn"><b>${warn.length}</b><span>segera berakhir (60 hari)</span></div>
-        <div class="panel stat bad"><b>${bad.length}</b><span>sudah kedaluwarsa</span></div>
-        <div class="panel stat"><b>${draf.length}</b><span>draf menunggu pengesahan</span></div></div>
+        <a href="#" class="panel stat" data-go="dokumen"><b>${DOCS.filter(lihat).length}</b><span>dokumen dapat Anda lihat</span></a>
+        <a href="#" class="panel stat warn" data-go="pengingat"><b>${warn.length}</b><span>segera berakhir (60 hari)</span></a>
+        <a href="#" class="panel stat bad" data-go="pengingat"><b>${bad.length}</b><span>sudah kedaluwarsa</span></a>
+        <a href="#" class="panel stat" data-go="keluar"><b>${draf.length}</b><span>draf menunggu pengesahan</span></a></div>
       <div class="grid g2" style="margin-bottom:14px">
-        <div class="panel"><h2>Surat masuk perlu tindak lanjut</h2><ul class="list">${smBuka.map(s => `<li data-sm="${s.id}" style="cursor:pointer"><span><b>${esc(s.perihal)}</b><br><span class="muted" style="font-size:.82rem">${esc(s.asal)} · ${esc(s.agenda)}</span></span><span class="badge ${smB[s.status]}">${s.status}</span></li>`).join('') || '<li class="muted">Semua surat masuk sudah selesai.</li>'}</ul><p style="margin:10px 0 0"><a href="#" data-go="masuk">Buka surat masuk</a></p></div>
-        <div class="panel"><h2>Surat keluar dalam proses</h2><ul class="list">${tunggu.map(d => `<li data-id="${d.id}" style="cursor:pointer"><span><b>${esc(d.judul)}</b><br><span class="muted code" style="font-size:.8rem">${esc(d.kode)}</span></span><span class="badge ${alurB[d.alur]}">${d.alur}</span></li>`).join('') || '<li class="muted">Tidak ada.</li>'}</ul><p style="margin:10px 0 0"><a href="#" data-go="keluar">Buka surat keluar</a></p></div>
+        <div class="panel"><h2>Surat masuk perlu tindak lanjut</h2><ul class="list">${smBuka.slice(0, 5).map(s => `<li data-sm="${s.id}" style="cursor:pointer"><span><b>${esc(s.perihal)}</b><br><span class="muted" style="font-size:.82rem">${esc(s.asal)} · ${esc(s.agenda)}</span></span><span class="badge ${smB[s.status]}">${s.status}</span></li>`).join('') || '<li class="muted">Semua surat masuk sudah selesai.</li>'}</ul><p style="margin:10px 0 0"><a href="#" data-go="masuk">${smBuka.length > 5 ? `Lihat semua (${smBuka.length})` : 'Buka surat masuk'}</a></p></div>
+        <div class="panel"><h2>Surat keluar dalam proses</h2><ul class="list">${tunggu.slice(0, 5).map(d => `<li data-id="${d.id}" style="cursor:pointer"><span><b>${esc(d.judul)}</b><br><span class="muted code" style="font-size:.8rem">${esc(d.kode)}</span></span><span class="badge ${alurB[d.alur]}">${d.alur}</span></li>`).join('') || '<li class="muted">Tidak ada.</li>'}</ul><p style="margin:10px 0 0"><a href="#" data-go="keluar">${tunggu.length > 5 ? `Lihat semua (${tunggu.length})` : 'Buka surat keluar'}</a></p></div>
       </div>
       <div class="grid g2">
         ${peranBolehAgenda() ? `<div class="panel"><h2>Agenda terdekat${agAktif ? ': ' + esc(agAktif.nama) : ''}</h2>${agAktif ? `<div class="bar"><i style="width:${agAktif.butir.length ? Math.round(agSiap / agAktif.butir.length * 100) : 0}%"></i></div><p class="muted" style="font-size:.88rem">${agSiap} dari ${agAktif.butir.length} butir siap${agAktif.tanggal ? ' · ' + tgl(agAktif.tanggal) : ''}.</p>
@@ -385,7 +505,7 @@
       .sort((a, b) => (b.terbit || '9999').localeCompare(a.terbit || '9999'));
     const draw = () => {
       const list = daftar();
-      document.getElementById('tb').innerHTML = halaman(list, f).map(d => { const s = status(d); return `<tr data-id="${d.id}"><td class="code" data-l="Nomor">${esc(d.kode)}</td><td data-l="Judul">${esc(d.judul)}<div class="muted" style="font-size:.8rem">${esc(d.pemilik)}${d.tpl ? ' · <span class="chip">dari templat</span>' : ''}${d.surat ? ' · <span class="chip">surat keluar</span>' : ''}</div></td>${FK ? '' : `<td data-l="Kategori">${esc(katNama(d.kat))}</td>`}<td data-l="Terbit">${tgl(d.terbit)}</td><td data-l="Revisi">${d.rev}</td><td data-l="Berlaku sampai">${d.sampai ? tgl(d.sampai) : 'Tidak terbatas'}</td><td data-l="Status"><span class="badge ${s[1]}">${s[0]}</span></td></tr>`; }).join('') || `<tr><td colspan="7" class="muted kosong">Tidak ada dokumen yang cocok dengan filter.</td></tr>`;
+      document.getElementById('tb').innerHTML = halaman(list, f).map(d => { const s = status(d); return `<tr data-id="${d.id}"><td class="code" data-l="Nomor">${esc(d.kode)}</td><td data-l="Judul">${esc(d.judul)}<div class="muted" style="font-size:.8rem">${esc(d.pemilik)}${d.tpl ? ' · <span class="chip">dari templat</span>' : ''}${d.surat ? ' · <span class="chip">surat keluar</span>' : ''}</div></td>${FK ? '' : `<td data-l="Kategori">${esc(katNama(d.kat))}</td>`}<td data-l="Terbit">${tgl(d.terbit)}</td><td data-l="Revisi">${d.rev}</td><td data-l="Berlaku sampai">${d.sampai ? tgl(d.sampai) : '—'}</td><td data-l="Status"><span class="badge ${s[1]}">${s[0]}</span></td></tr>`; }).join('') || `<tr><td colspan="7" class="muted kosong">Tidak ada dokumen yang cocok dengan filter.</td></tr>`;
       pager(list.length, f, draw);
     };
     ikatToolbar(f, draw);
@@ -402,10 +522,11 @@
     v.innerHTML = `<p class="muted lead">Dokumen final dan surat masuk yang sudah diarsipkan. Saring berdasarkan jenis + kategori, atau cari judul/nomor.</p>
       <div class="toolbar">
       <input id="q" type="search" placeholder="Cari judul, nomor, atau perihal" value="${esc(f.q)}">
-      <select id="fjns"><option value="">Semua jenis</option><option value="dok"${f.jenis === 'dok' ? ' selected' : ''}>Dokumen</option><option value="sm"${f.jenis === 'sm' ? ' selected' : ''}>Surat masuk</option></select>
+      <button class="btn ghost tb-filter" type="button" aria-expanded="false">Filter${f.jenis || f.kat || f.dari || f.sampai ? ' •' : ''}</button>
+      <div class="tb-more"><select id="fjns"><option value="">Semua jenis</option><option value="dok"${f.jenis === 'dok' ? ' selected' : ''}>Dokumen</option><option value="sm"${f.jenis === 'sm' ? ' selected' : ''}>Surat masuk</option></select>
       <select id="fkat"><option value="">Semua kategori</option>${opsiKat.map(k => `<option value="${k[0]}"${f.kat === k[0] ? ' selected' : ''}>${esc(k[1])}</option>`).join('')}</select>
       <label class="dt">Dari<input type="date" id="fd" value="${f.dari}"></label><label class="dt">Sampai<input type="date" id="fe" value="${f.sampai}"></label>
-      <button class="btn ghost" id="ex" type="button">Ekspor Excel</button></div>
+      <button class="btn ghost" id="ex" type="button">Ekspor Excel</button></div></div>
       <h3 style="margin:14px 0 8px">Dokumen</h3>
       <div class="table-wrap"><table><thead><tr><th>Nomor</th><th>Judul</th><th>Kategori</th><th>Terbit</th><th>Rev.</th><th>Berlaku sampai</th><th>Status</th></tr></thead><tbody id="tb"></tbody></table></div><div class="pager" id="pg"></div>
       <h3 style="margin:18px 0 8px">Surat masuk</h3>
@@ -416,10 +537,10 @@
       .sort((a, b) => b.agenda.localeCompare(a.agenda));
     const draw = () => {
       const list = daftar();
-      document.getElementById('tb').innerHTML = halaman(list, f).map(d => { const s = status(d); return `<tr data-id="${d.id}"><td class="code" data-l="Nomor">${esc(d.kode)}</td><td data-l="Judul">${esc(d.judul)}<div class="muted" style="font-size:.8rem">${esc(d.pemilik)}${d.tpl ? ' · <span class="chip">dari templat</span>' : ''}${d.surat ? ' · <span class="chip">surat keluar</span>' : ''}</div></td><td data-l="Kategori">${esc(katNama(d.kat))}</td><td data-l="Terbit">${tgl(d.terbit)}</td><td data-l="Revisi">${d.rev}</td><td data-l="Berlaku sampai">${d.sampai ? tgl(d.sampai) : 'Tidak terbatas'}</td><td data-l="Status"><span class="badge ${s[1]}">${s[0]}</span></td></tr>`; }).join('') || `<tr><td colspan="7" class="muted kosong">Belum ada dokumen arsip yang cocok.</td></tr>`;
+      document.getElementById('tb').innerHTML = halaman(list, f).map(d => { const s = status(d); return `<tr data-id="${d.id}"><td class="code" data-l="Nomor">${esc(d.kode)}</td><td data-l="Judul">${esc(d.judul)}<div class="muted" style="font-size:.8rem">${esc(d.pemilik)}${d.tpl ? ' · <span class="chip">dari templat</span>' : ''}${d.surat ? ' · <span class="chip">surat keluar</span>' : ''}</div></td><td data-l="Kategori">${esc(katNama(d.kat))}</td><td data-l="Terbit">${tgl(d.terbit)}</td><td data-l="Revisi">${d.rev}</td><td data-l="Berlaku sampai">${d.sampai ? tgl(d.sampai) : '—'}</td><td data-l="Status"><span class="badge ${s[1]}">${s[0]}</span></td></tr>`; }).join('') || `<tr><td colspan="7" class="muted kosong">Belum ada dokumen arsip yang cocok.</td></tr>`;
       pager(list.length, f, draw);
       const lsm = daftarSM();
-      document.getElementById('tbsm').innerHTML = lsm.map(s => `<tr data-sm="${s.id}"><td class="code" data-l="No. agenda">${esc(s.agenda)}</td><td data-l="Diterima">${tgl(s.terima)}</td><td data-l="Pengirim">${esc(s.asal)}<div class="muted" style="font-size:.8rem">${esc(s.nomor)}</div></td><td data-l="Perihal">${esc(s.perihal)}${s.file_url ? ' · <span class="chip">ada berkas</span>' : ''}</td><td data-l="Status"><span class="badge ${smB[s.status]}">${s.status}</span></td></tr>`).join('') || `<tr><td colspan="5" class="muted kosong">Belum ada surat masuk yang diarsipkan.</td></tr>`;
+      document.getElementById('tbsm').innerHTML = lsm.map(s => `<tr data-sm="${s.id}"><td class="code" data-l="No. agenda">${esc(s.agenda)}</td><td data-l="Diterima">${tgl(s.terima)}</td><td data-l="Pengirim">${esc(s.asal)}<div class="muted" style="font-size:.8rem">${esc(s.nomor)}</div></td><td data-l="Perihal">${esc(s.perihal)}${adaBerkas(s) ? ' · <span class="chip">ada berkas</span>' : ''}</td><td data-l="Status"><span class="badge ${smB[s.status]}">${s.status}</span></td></tr>`).join('') || `<tr><td colspan="5" class="muted kosong">Belum ada surat masuk yang diarsipkan.</td></tr>`;
     };
     document.getElementById('q').oninput = (e) => { f.q = e.target.value; f.pg = 1; draw(); };
     document.getElementById('fjns').onchange = (e) => { f.jenis = e.target.value; f.pg = 1; draw(); };
@@ -452,20 +573,20 @@
         <div class="acts"><button class="btn ghost" data-tambah="${a.id}" type="button">+ Tambah butir</button><button class="btn ghost" data-hapus="${a.id}" type="button">Hapus agenda</button></div></div>`; }).join('') || '<div class="panel muted">Belum ada agenda.</div>'}`;
     document.getElementById('addAg').onclick = () => {
       const back = drawer(`<h2>Tambah agenda</h2><form class="form" id="fAg"><label class="f">Nama agenda<input name="nama" required placeholder="mis. Surveilans BNSP 2027"></label><div class="row2"><label class="f">Tanggal<input type="date" name="tanggal" required></label><label class="f">Tempat<input name="tempat"></label></div><label class="f">Catatan<textarea name="catatan" rows="2"></textarea></label><div><button class="btn" type="submit">Simpan agenda</button></div></form>`);
-      back.querySelector('#fAg').onsubmit = (e) => { e.preventDefault(); const g = new FormData(e.target); const baru = { id: AGENDA_ID++, nama: (g.get('nama') || '').trim(), tanggal: g.get('tanggal'), tempat: (g.get('tempat') || '').trim(), catatan: (g.get('catatan') || '').trim(), butir: [] }; AGENDA.push(baru); catat('Menambah agenda ' + g.get('nama')); tutupDrawer(); toast('Agenda tersimpan'); render(); latar(api('tambah', { tabel: 'Agenda', data: { nama: baru.nama, tanggal: baru.tanggal, tempat: baru.tempat, catatan: baru.catatan } }).then(b => { if (b && b.id) { baru._rid = b.id; baru.id = b.id; } }), 'Tambah agenda'); };
+      back.querySelector('#fAg').onsubmit = (e) => { e.preventDefault(); const g = new FormData(e.target); const baru = { id: AGENDA_ID++, nama: (g.get('nama') || '').trim(), tanggal: g.get('tanggal'), tempat: (g.get('tempat') || '').trim(), catatan: (g.get('catatan') || '').trim(), butir: [] }; AGENDA.push(baru); catat('Menambah agenda ' + g.get('nama')); tutupDrawer(); toast('Agenda tersimpan'); render(); baru._siap = true; latar(() => api('tambah', { tabel: 'Agenda', data: { nama: baru.nama, tanggal: baru.tanggal, tempat: baru.tempat, catatan: baru.catatan } }).then(b => { if (b && b.id) { baru._lokal = baru.id; baru._rid = b.id; baru.id = b.id; } }), 'Tambah agenda'); };
     };
     v.querySelectorAll('[data-tambah]').forEach(b => b.onclick = () => {
       const a = cariAgenda(b.dataset.tambah); if (!a) { toast('Agenda tidak ditemukan.'); return; }
       const back = drawer(`<h2>Tambah butir — ${esc(a.nama)}</h2><form class="form" id="fB"><label class="f">Butir dokumen<input name="nama" required placeholder="mis. SK penugasan panitia"></label><label class="f">Status<select name="st"><option value="warn">Perlu dilengkapi</option><option value="ok">Siap</option><option value="bad">Mendesak</option></select></label><label class="f">Keterangan<input name="ket"></label><div><button class="btn" type="submit">Simpan butir</button></div></form>`);
-      back.querySelector('#fB').onsubmit = (e) => { e.preventDefault(); const g = new FormData(e.target); const item = [(g.get('nama') || '').trim(), g.get('st'), (g.get('ket') || '').trim()]; a.butir.push(item); catat('Menambah butir agenda ' + a.nama); tutupDrawer(); toast('Butir tersimpan'); render(); if (a._rid) latar(api('tambah', { tabel: 'AgendaButir', data: { agenda_id: String(a._rid), nama: item[0], status: item[1], ket: item[2] } }).then(b => { if (b && b.id) item.push(b.id); }), 'Tambah butir'); };
+      back.querySelector('#fB').onsubmit = (e) => { e.preventDefault(); const g = new FormData(e.target); const item = [(g.get('nama') || '').trim(), g.get('st'), (g.get('ket') || '').trim()]; a.butir.push(item); catat('Menambah butir agenda ' + a.nama); tutupDrawer(); toast('Butir tersimpan'); render(); if (a._rid || a._siap) latar(() => api('tambah', { tabel: 'AgendaButir', data: { agenda_id: String(a._rid), nama: item[0], status: item[1], ket: item[2] } }).then(b => { if (b && b.id) item.push(b.id); }), 'Tambah butir'); };
     });
-    v.querySelectorAll('[data-hapus]').forEach(b => b.onclick = () => { const a = cariAgenda(b.dataset.hapus); if (!a) { toast('Agenda tidak ditemukan.'); return; } if (!confirm('Hapus agenda "' + a.nama + '"?')) return; AGENDA = AGENDA.filter(x => x.id !== a.id); catat('Menghapus agenda ' + a.nama); render(); toast('Dihapus: ' + a.nama); if (a._rid) latar(api('hapus', { tabel: 'Agenda', id: a._rid }), 'Hapus agenda'); });
+    v.querySelectorAll('[data-hapus]').forEach(b => b.onclick = async () => { const a = cariAgenda(b.dataset.hapus); if (!a) { toast('Agenda tidak ditemukan.'); return; } if (!(await tanya('Hapus agenda "' + a.nama + '"?'))) return; AGENDA = AGENDA.filter(x => x.id !== a.id); catat('Menghapus agenda ' + a.nama); render(); toast('Dihapus: ' + a.nama); if (a._rid || a._siap) latar(() => api('hapus', { tabel: 'Agenda', id: a._rid }), 'Hapus agenda'); });
     v.querySelectorAll('[data-ubah]').forEach(b => b.onclick = () => {
       const [aid, bi] = b.dataset.ubah.split(':'); const a = cariAgenda(aid); if (!a) { toast('Agenda tidak ditemukan.'); return; } const bi2 = +bi; const it = a.butir[bi2];
       const back = drawer(`<h2>Ubah butir — ${esc(a.nama)}</h2><form class="form" id="fU"><label class="f">Butir dokumen<input name="nama" required value="${esc(it[0])}"></label><label class="f">Status<select name="st"><option value="ok"${it[1] === 'ok' ? ' selected' : ''}>Siap</option><option value="warn"${it[1] === 'warn' ? ' selected' : ''}>Perlu dilengkapi</option><option value="bad"${it[1] === 'bad' ? ' selected' : ''}>Mendesak</option></select></label><label class="f">Keterangan<input name="ket" value="${esc(it[2] || '')}"></label><div><button class="btn" type="submit">Simpan perubahan</button></div></form>`);
-      back.querySelector('#fU').onsubmit = (e) => { e.preventDefault(); const g = new FormData(e.target); a.butir[bi2] = [(g.get('nama') || '').trim(), g.get('st'), (g.get('ket') || '').trim(), it[3]]; catat('Mengubah butir agenda ' + a.nama + ': ' + g.get('nama')); tutupDrawer(); toast('Butir diperbarui'); render(); if (it[3]) latar(api('ubah', { tabel: 'AgendaButir', id: it[3], data: { agenda_id: String(a._rid || ''), nama: a.butir[bi2][0], status: a.butir[bi2][1], ket: a.butir[bi2][2] } }), 'Ubah butir'); };
+      back.querySelector('#fU').onsubmit = (e) => { e.preventDefault(); const g = new FormData(e.target); a.butir[bi2] = [(g.get('nama') || '').trim(), g.get('st'), (g.get('ket') || '').trim(), it[3]]; catat('Mengubah butir agenda ' + a.nama + ': ' + g.get('nama')); tutupDrawer(); toast('Butir diperbarui'); render(); if (it[3]) latar(() => api('ubah', { tabel: 'AgendaButir', id: it[3], data: { agenda_id: String(a._rid || ''), nama: a.butir[bi2][0], status: a.butir[bi2][1], ket: a.butir[bi2][2] } }), 'Ubah butir'); };
     });
-    v.querySelectorAll('[data-buang]').forEach(b => b.onclick = () => { const [aid, bi] = b.dataset.buang.split(':'); const a = cariAgenda(aid); if (!a) { toast('Agenda tidak ditemukan.'); return; } const bi2 = +bi; const it = a.butir[bi2]; if (!confirm('Hapus butir "' + it[0] + '"?')) return; a.butir.splice(bi2, 1); catat('Menghapus butir agenda ' + a.nama + ': ' + it[0]); render(); toast('Butir dihapus'); if (it[3]) latar(api('hapus', { tabel: 'AgendaButir', id: it[3] }), 'Hapus butir'); });
+    v.querySelectorAll('[data-buang]').forEach(b => b.onclick = async () => { const [aid, bi] = b.dataset.buang.split(':'); const a = cariAgenda(aid); if (!a) { toast('Agenda tidak ditemukan.'); return; } const bi2 = +bi; const it = a.butir[bi2]; if (!(await tanya('Hapus butir "' + it[0] + '"?'))) return; a.butir.splice(bi2, 1); catat('Menghapus butir agenda ' + a.nama + ': ' + it[0]); render(); toast('Butir dihapus'); if (it[3]) latar(() => api('hapus', { tabel: 'AgendaButir', id: it[3] }), 'Hapus butir'); });
   }
 
   /* ---------- Surat masuk ---------- */
@@ -499,8 +620,8 @@
       <span class="badge ${smB[s.status]}">${s.status}</span> ${s.sifat !== 'Biasa' ? `<span class="badge bad">${esc(s.sifat)}</span>` : ''}${tugasIni ? ' <span class="badge warn">Tugas Anda</span>' : ''}
       <div class="steps">${['Diterima', 'Didisposisi', 'Selesai'].map((x, i, a) => `<div class="${a.indexOf(s.status) >= i ? 'on' : ''}">${x}</div>`).join('')}</div>
       <dl class="kv"><dt>Pengirim</dt><dd>${esc(s.asal)}</dd><dt>Nomor surat</dt><dd>${esc(s.nomor)}</dd><dt>Tanggal surat</dt><dd>${tgl(s.tglSurat)}</dd><dt>Diterima</dt><dd>${tgl(s.terima)}</dd></dl>
-      <div class="file"><i>PDF</i><div><b>${s.file_url ? `<a href="${esc(s.file_url)}" target="_blank" rel="noopener">${esc(s.berkas)}</a>` : esc(s.berkas)}</b><div class="muted" style="font-size:.82rem">${s.file_url ? 'Tersimpan di Drive LSP — klik nama berkas untuk membuka.' : 'Belum ada tautan berkas — tambahkan lewat Ubah data.'}</div></div></div>
-      <div class="acts"><button class="btn ghost" data-a="cetak">Cetak lembar disposisi</button>${s.status !== 'Selesai' ? '<button class="btn ghost" data-a="selesai">Tandai selesai</button>' : ''}${s.file_url ? `<a class="btn ghost" href="${esc(s.file_url)}" target="_blank" rel="noopener" data-a="unduh">Buka / unduh berkas</a>` : ''}</div>
+      <div class="file"><i>PDF</i><div><b>${adaBerkas(s) ? `<button type="button" class="linkbtn" data-a="buka">${esc(s.berkas)}</button>` : esc(s.berkas)}</b><div class="muted" style="font-size:.82rem">${adaBerkas(s) ? 'Tersimpan di Drive LSP — klik nama berkas untuk membuka.' : 'Belum ada tautan berkas — tambahkan lewat Ubah data.'}</div></div></div>
+      <div class="acts"><button class="btn ghost" data-a="cetak">Cetak lembar disposisi</button>${s.status !== 'Selesai' ? '<button class="btn ghost" data-a="selesai">Tandai selesai</button>' : ''}${adaBerkas(s) ? '<button class="btn ghost" type="button" data-a="buka">Buka berkas</button>' : ''}</div>
       ${bolehCatatMasuk() ? `<div class="acts">${s.arsip ? '<button class="btn ghost" data-a="keluar-arsip">Keluarkan dari arsip</button>' : '<button class="btn ghost" data-a="edit">Ubah data</button><button class="btn ghost" data-a="arsip">Arsipkan</button>'}<button class="btn ghost" data-a="hapus">Hapus</button></div>${s.arsip ? '<p class="note">Surat ini sudah diarsipkan.</p>' : ''}` : ''}
       <h3>Riwayat disposisi</h3>${s.disp.length ? `<div class="ver">${s.disp.map(x => `<div><b>${tgl(x.tgl)} → ${esc(x.ke.join(', '))}</b><span>${esc(x.instruksi)}${x.catatan ? ': ' + esc(x.catatan) : ''}</span>${x.batas ? `<span class="muted"> Batas ${tgl(x.batas)}</span>` : ''}</div>`).join('')}</div>` : '<p class="muted">Belum didisposisikan.</p>'}
       ${s.status !== 'Selesai' && bolehDisp ? `<h3 style="margin-top:18px">Buat disposisi${kunciPeran() === 'Ketua' ? ' (Ketua LSP)' : ''}</h3><form class="form" id="fDisp">
@@ -512,12 +633,12 @@
     back.addEventListener('click', async (e) => {
       const a = e.target.closest('[data-a]'); if (!a) return;
       if (a.dataset.a === 'cetak') window.cetakDokumen(window.lembarDisposisi(s, BAGIAN), 'Lembar disposisi ' + s.agenda);
-      if (a.dataset.a === 'selesai') { s.status = 'Selesai'; catat('Menandai selesai surat masuk ' + s.agenda); tutupDrawer(); toast('Surat ' + s.agenda + ' selesai'); shell(); if (s._rid) latar(api('ubah', { tabel: 'SuratMasuk', id: s._rid, data: smKeServer(s) }), 'Tandai selesai'); }
-      if (a.dataset.a === 'unduh') { catat('Mengunduh surat masuk ' + s.agenda); return; }
+      if (a.dataset.a === 'selesai') { s.status = 'Selesai'; catat('Menandai selesai surat masuk ' + s.agenda); tutupDrawer(); toast('Surat ' + s.agenda + ' selesai'); shell(); if (s._rid || s._siap) latar(() => api('ubah', { tabel: 'SuratMasuk', id: s._rid, data: smKeServer(s) }), 'Tandai selesai'); }
+      if (a.dataset.a === 'buka') { bukaBerkas(s); return; }
       if (a.dataset.a === 'edit') { if (!bolehCatatMasuk()) { toast('Hanya Admin/Sekretariat/Ketua'); return; } tutupDrawer(); formEditMasuk(s.id); return; }
-      if (a.dataset.a === 'arsip') { if (!bolehCatatMasuk()) { toast('Hanya Admin/Sekretariat/Ketua'); return; } s.arsip = true; catat('Mengarsipkan surat masuk ' + s.agenda); tutupDrawer(); toast('Diarsipkan: ' + s.agenda); shell(); detailMasuk(s.id); if (s._rid) latar(api('ubah', { tabel: 'SuratMasuk', id: s._rid, data: smKeServer(s) }), 'Arsip surat'); return; }
-      if (a.dataset.a === 'keluar-arsip') { if (!bolehCatatMasuk()) { toast('Hanya Admin/Sekretariat/Ketua'); return; } s.arsip = false; catat('Mengeluarkan dari arsip ' + s.agenda); tutupDrawer(); toast('Dikeluarkan dari arsip: ' + s.agenda); shell(); detailMasuk(s.id); if (s._rid) latar(api('ubah', { tabel: 'SuratMasuk', id: s._rid, data: smKeServer(s) }), 'Keluarkan arsip'); return; }
-      if (a.dataset.a === 'hapus') { if (!bolehCatatMasuk()) { toast('Hanya Admin/Sekretariat/Ketua'); return; } if (!confirm('Hapus surat masuk ' + s.agenda + ' — ' + s.perihal + '?')) return; SM = SM.filter(x => String(x.id) !== String(s.id)); catat('Menghapus surat masuk ' + s.agenda); tutupDrawer(); shell(); toast('Dihapus: ' + s.agenda); if (s._rid) latar(api('hapus', { tabel: 'SuratMasuk', id: s._rid }), 'Hapus surat'); return; }
+      if (a.dataset.a === 'arsip') { if (!bolehCatatMasuk()) { toast('Hanya Admin/Sekretariat/Ketua'); return; } s.arsip = true; catat('Mengarsipkan surat masuk ' + s.agenda); tutupDrawer(); toast('Diarsipkan: ' + s.agenda); shell(); detailMasuk(s.id); if (s._rid || s._siap) latar(() => api('ubah', { tabel: 'SuratMasuk', id: s._rid, data: smKeServer(s) }), 'Arsip surat'); return; }
+      if (a.dataset.a === 'keluar-arsip') { if (!bolehCatatMasuk()) { toast('Hanya Admin/Sekretariat/Ketua'); return; } s.arsip = false; catat('Mengeluarkan dari arsip ' + s.agenda); tutupDrawer(); toast('Dikeluarkan dari arsip: ' + s.agenda); shell(); detailMasuk(s.id); if (s._rid || s._siap) latar(() => api('ubah', { tabel: 'SuratMasuk', id: s._rid, data: smKeServer(s) }), 'Keluarkan arsip'); return; }
+      if (a.dataset.a === 'hapus') { if (!bolehCatatMasuk()) { toast('Hanya Admin/Sekretariat/Ketua'); return; } if (!(await tanya('Hapus surat masuk ' + s.agenda + ' — ' + s.perihal + '?'))) return; SM = SM.filter(x => String(x.id) !== String(s.id)); catat('Menghapus surat masuk ' + s.agenda); tutupDrawer(); shell(); toast('Dihapus: ' + s.agenda); if (s._rid || s._siap) latar(() => api('hapus', { tabel: 'SuratMasuk', id: s._rid }), 'Hapus surat'); return; }
     });
     const fd = back.querySelector('#fDisp');
     if (fd) fd.onsubmit = (e) => {
@@ -528,8 +649,8 @@
       s.disp.push(itemDisp);
       s.status = 'Didisposisi';
       catat('Mendisposisikan ' + s.agenda + ' ke ' + ke.join(', '), 'Ketua LSP');
-      tutupDrawer(); toast('Disposisi terkirim ke ' + ke.join(', ')); shell(); detailMasuk(id);
-      if (s._rid) latar((async () => { await api('tambah', { tabel: 'Disposisi', data: { surat_id: String(s._rid), tgl: HARI_INI, ke: ke.join(', '), instruksi: fd.ins.value, catatan: fd.cat.value.trim(), batas: fd.batas.value } }); await api('ubah', { tabel: 'SuratMasuk', id: s._rid, data: smKeServer(s) }); })(), 'Kirim disposisi');
+      tutupDrawer(); toast('Disposisi terkirim ke ' + ke.join(', ')); shell(); detailMasuk(s.id);
+      if (s._rid) { const dataDisp = { surat_id: String(s._rid), tgl: HARI_INI, ke: ke.join(', '), instruksi: fd.ins.value, catatan: fd.cat.value.trim(), batas: fd.batas.value }, dataSm = smKeServer(s); latar(() => kirimBatch([{ aksi: 'tambah', tabel: 'Disposisi', data: Object.assign({}, dataDisp, { surat_id: String(s._rid) }) }, { aksi: 'ubah', tabel: 'SuratMasuk', id: s._rid, data: dataSm }]), 'Kirim disposisi'); }
     };
   }
 
@@ -564,7 +685,7 @@
       } catch (err) { toast(err.message); btn.disabled = false; btn.textContent = 'Simpan perubahan'; return; }
       Object.assign(s, { asal: f.asal.value.trim(), nomor: f.nomor.value.trim(), sifat: f.sifat.value, tglSurat: f.tglSurat.value, terima: f.terima.value, perihal: f.perihal.value.trim(), file_id, berkas: file_nama || s.berkas, file_url });
       catat('Mengubah surat masuk ' + s.agenda); tutupDrawer(); toast('Perubahan tersimpan: ' + s.agenda); shell(); detailMasuk(s.id);
-      if (s._rid) latar(api('ubah', { tabel: 'SuratMasuk', id: s._rid, data: smKeServer(s) }), 'Ubah surat');
+      if (s._rid || s._siap) latar(() => api('ubah', { tabel: 'SuratMasuk', id: s._rid, data: smKeServer(s) }), 'Ubah surat');
     };
   }
 
@@ -597,7 +718,7 @@
       seq.SM++;
       const s = { id: SM.length + 1, agenda: no, tglSurat: f.tglSurat.value, terima: f.terima.value, asal: f.asal.value.trim(), nomor: f.nomor.value.trim(), perihal: f.perihal.value.trim(), sifat: f.sifat.value, status: 'Diterima', disp: [], berkas: file_nama || ('Pindaian_' + no.replace(/\W+/g, '_') + '.pdf'), file_id, file_url };
       SM.push(s); catat('Mencatat surat masuk ' + no); tutupDrawer(); toast('Surat masuk tercatat: ' + no); pergi('masuk'); detailMasuk(s.id);
-      latar(api('tambah', { tabel: 'SuratMasuk', data: smKeServer(s) }).then(b => { if (b && b.id) { s._rid = b.id; s.id = b.id; } }), 'Catat surat');
+      s._siap = true; latar(() => api('tambah', { tabel: 'SuratMasuk', data: smKeServer(s) }).then(b => { if (b && b.id) { s._lokal = s.id; s._rid = b.id; s.id = b.id; } }), 'Catat surat');
     };
   }
 
@@ -661,7 +782,7 @@
       const isi = {}; Array.from(fk.elements).forEach(x => { if (x.name) { K[x.name] = x.value.trim(); isi[x.name] = x.value.trim(); } });
       try { Object.assign(window.KOP, K); } catch (err) {}
       catat('Mengubah pengaturan kop surat'); toast('Pengaturan kop tersimpan & tampil di semua templat');
-      latar(kopId ? api('ubah', { tabel: 'Kop', id: kopId, data: isi }) : api('tambah', { tabel: 'Kop', data: isi }).then(b => { kopId = (b && b.id) || kopId; }), 'Simpan kop');
+      latar(() => (kopId ? api('ubah', { tabel: 'Kop', id: kopId, data: isi }) : api('tambah', { tabel: 'Kop', data: isi }).then(b => { kopId = (b && b.id) || kopId; })), 'Simpan kop');
     };
   }
 
@@ -700,13 +821,13 @@
         const list = await api('daftarPengguna');
         el.innerHTML = `<div class="table-wrap"><table><thead><tr><th>Username</th><th>Nama</th><th>Peran</th><th>Aktif</th>${kelola ? '<th>Kelola</th>' : ''}</tr></thead><tbody>${list.map(a => { const un = a.username || ''; return `<tr><td data-l="Username">${un ? '@' + esc(un) : '<span class="muted">— tanpa username</span>'}</td><td data-l="Nama">${esc(a.nama)}</td><td data-l="Peran">${esc(a.peran)}</td><td data-l="Aktif">${esc(a.aktif || 'YA')}</td>${kelola ? (un ? `<td data-l="Kelola"><button class="btn ghost" type="button" data-ubah="${esc(un)}">Ubah</button> <button class="btn ghost" type="button" data-reset="${esc(un)}">Reset sandi</button> <button class="btn ghost" type="button" data-hapus="${esc(un)}">Hapus</button></td>` : '<td data-l="Kelola"><span class="muted" style="font-size:.82rem">Perbaiki di sheet: kolom username kosong</span></td>') : ''}</tr>`; }).join('')}</tbody></table></div>`;
         el.querySelectorAll('[data-reset]').forEach(b => b.onclick = async () => {
-          const pwBaru = prompt('Password baru untuk @' + b.dataset.reset + ' (min. 8 karakter):');
+          const pwBaru = await isian('Password baru untuk @' + b.dataset.reset + ' (min. 8 karakter)', 'password');
           if (!pwBaru) return;
           try { await api('aturSandi', { data: { username: b.dataset.reset, password: pwBaru } }); toast('Sandi @' + b.dataset.reset + ' direset'); }
           catch (err) { toast(err.message); }
         });
         el.querySelectorAll('[data-hapus]').forEach(b => b.onclick = async () => {
-          if (!confirm('Hapus akun @' + b.dataset.hapus + '? Akun langsung tidak bisa masuk.')) return;
+          if (!(await tanya('Hapus akun @' + b.dataset.hapus + '? Akun langsung tidak bisa masuk.'))) return;
           try { await api('hapusPengguna', { data: { username: b.dataset.hapus } }); toast('Akun @' + b.dataset.hapus + ' dihapus'); muatAkun(); }
           catch (err) { toast(err.message); }
         });
@@ -757,7 +878,7 @@
     const bisaUbah = bolehUbahKat(d.kat);
     d.riwayat = d.riwayat || [];
     const infoRev = (r) => d.riwayat.find(x => x.rev === r) || null;
-    const vers = Array.from({ length: d.rev }, (_, i) => d.rev - i).map(r => { const info = infoRev(r); return `<div><b>Revisi ${r}${r === d.rev ? ' (berlaku)' : ''}</b><span class="muted">${r === d.rev ? tgl(d.terbit || HARI_INI) : 'Diganti oleh revisi ' + (r + 1)}</span>${info && info.catatan ? `<div style="font-size:.84rem;margin-top:2px">Catatan: ${esc(info.catatan)}</div>` : ''}${info && info.file_url ? `<div style="font-size:.82rem"><a href="${esc(info.file_url)}" target="_blank" rel="noopener">Buka berkas revisi ${r}</a></div>` : ''}</div>`; }).join('');
+    const vers = Array.from({ length: d.rev }, (_, i) => d.rev - i).map(r => { const info = infoRev(r); return `<div><b>Revisi ${r}${r === d.rev ? ' (berlaku)' : ''}</b><span class="muted">${r === d.rev ? tgl(d.terbit || HARI_INI) : 'Diganti oleh revisi ' + (r + 1)}</span>${info && info.catatan ? `<div style="font-size:.84rem;margin-top:2px">Catatan: ${esc(info.catatan)}</div>` : ''}${info && adaBerkas(info) ? `<div style="font-size:.82rem"><button type="button" class="linkbtn" data-a="buka-rev" data-rev="${r}">Buka berkas revisi ${r}</button></div>` : ''}</div>`; }).join('');
     let aksi = '';
     if (d.surat) {
       const i = ALUR.indexOf(d.alur);
@@ -781,8 +902,8 @@
     const back = drawer(`<div class="code" style="color:var(--red)">${esc(d.kode)}</div><h2 style="font-size:1.25rem;margin-top:6px">${esc(d.judul)}</h2>${d.surat ? `<span class="badge ${alurB[d.alur]}">${d.alur}</span>` : `<span class="badge ${s[1]}">${s[0]}</span>`}
       ${aksi}
       <dl class="kv"><dt>Kategori</dt><dd>${esc(katNama(d.kat))}</dd><dt>Penanggung jawab</dt><dd>${esc(d.pemilik)}</dd><dt>Tanggal</dt><dd>${tgl(d.terbit)}</dd><dt>Berlaku sampai</dt><dd>${d.sampai ? tgl(d.sampai) : 'Tidak terbatas'}</dd><dt>Sumber</dt><dd>${d.tpl ? 'Dibuat dari templat ' + esc(((window.TEMPLAT.find(t => t.id === d.tpl.id) || {})).nama || '') : 'Berkas diunggah'}</dd><dt>Masa simpan</dt><dd>${esc((KAT.find(k => k[0] === d.kat) || [])[3])}</dd><dt>Akses</dt><dd>${d.kat === 'ASM' || d.kat === 'ASR' ? 'Terbatas: Sekretariat, Sertifikasi, Manajemen Mutu' : 'Seluruh petugas LSP'}</dd></dl>
-      <div class="file"><i>PDF</i><div><b>${d.file_url ? `<a href="${esc(d.file_url)}" target="_blank" rel="noopener">${esc(d.berkas)}</a>` : esc(d.berkas)}</b><div class="muted" style="font-size:.82rem">${d.file_url ? 'Tersimpan di Drive LSP — klik nama berkas untuk membuka.' : (d.tpl ? 'PDF disusun otomatis dari templat' : 'Belum ada tautan berkas — tambahkan lewat Ubah data atau Unggah revisi.')}</div></div></div>
-      <div class="acts">${d.tpl ? '<button class="btn" data-a="lihat">Lihat & cetak</button>' : ''}${d.file_url ? `<a class="btn ghost" href="${esc(d.file_url)}" target="_blank" rel="noopener" data-a="unduh">Buka / unduh berkas</a>` : '<button class="btn ghost" data-a="tanpa-berkas">Unduh</button>'}${bisaUbah ? '<button class="btn ghost" data-a="revisi">Unggah revisi</button>' : ''}</div>
+      <div class="file"><i>PDF</i><div><b>${adaBerkas(d) ? `<button type="button" class="linkbtn" data-a="buka">${esc(d.berkas)}</button>` : esc(d.berkas)}</b><div class="muted" style="font-size:.82rem">${adaBerkas(d) ? 'Tersimpan di Drive LSP — klik nama berkas untuk membuka.' : (d.tpl ? 'PDF disusun otomatis dari templat' : 'Belum ada tautan berkas — tambahkan lewat Ubah data atau Unggah revisi.')}</div></div></div>
+      <div class="acts">${d.tpl ? '<button class="btn" data-a="lihat">Lihat & cetak</button>' : ''}${adaBerkas(d) ? '<button class="btn ghost" type="button" data-a="buka">Buka berkas</button>' : '<button class="btn ghost" data-a="tanpa-berkas">Unduh</button>'}${bisaUbah ? '<button class="btn ghost" data-a="revisi">Unggah revisi</button>' : ''}</div>
       <p class="muted" style="font-size:.82rem">Unduh membuka berkas Drive; Unggah revisi menyimpan berkas baru sebagai Revisi ${d.rev + 1} dan menaikkan nomor revisi (riwayat lama tetap tercatat).</p>
       ${d.tpl ? `<h3>Pratinjau</h3><div class="mini"><div class="kertas">${htmlDok(d)}</div></div>` : ''}
       <h3 style="margin-top:16px">Riwayat revisi</h3><div class="ver">${vers}</div>`);
@@ -801,9 +922,10 @@
       else if (act === 'arsip') { if (!bolehKelolaArsip(d)) { toast('Hanya Admin/Sekretariat, atau pemilik dokumen di kategorinya'); return; } d.arsip = true; d.status = 'Berlaku'; if (!d.terbit) d.terbit = HARI_INI; simpanDokBackend(d); catat('Mengarsipkan ' + d.kode); toast('Diarsipkan: ' + d.kode); shell(); detail(id); }
       else if (act === 'keluar-arsip') { if (!bolehKelolaArsip(d)) { toast('Hanya Admin/Sekretariat, atau pemilik dokumen di kategorinya'); return; } d.arsip = false; simpanDokBackend(d); catat('Mengeluarkan dari arsip ' + d.kode); toast('Dikeluarkan dari arsip: ' + d.kode); shell(); detail(id); }
       else if (act === 'tanpa-berkas') { toast('Belum ada berkas Drive untuk dokumen ini. Tambahkan lewat Ubah data atau Unggah revisi.'); return; }
-      else if (act === 'unduh') { catat('Mengunduh ' + d.kode); return; }
+      else if (act === 'buka') { bukaBerkas(d); return; }
+      else if (act === 'buka-rev') { const info = (d.riwayat || []).find(x => String(x.rev) === String(a.dataset.rev)); if (info) bukaBerkas(info); return; }
       else if (act === 'revisi') { if (!bisaUbah) { toast('Di luar kategori Anda'); return; } tutupDrawer(); formRevisi(id); return; }
-      else if (act === 'hapus') { if (!bolehKelolaArsip(d)) { toast('Hanya Admin/Sekretariat, atau pemilik dokumen di kategorinya'); return; } if (!confirm('Hapus ' + (d.surat ? 'surat ' : 'dokumen ') + d.kode + ' — ' + d.judul + '?' + (d.arsip ? ' (dokumen arsip)' : ''))) return; DOCS = DOCS.filter(x => x.id !== id); catat('Menghapus ' + d.kode); tutupDrawer(); shell(); toast('Dihapus: ' + d.kode); if (d._rid) latar(api('hapus', { tabel: 'Dokumen', id: d._rid }), 'Hapus dokumen'); }
+      else if (act === 'hapus') { if (!bolehKelolaArsip(d)) { toast('Hanya Admin/Sekretariat, atau pemilik dokumen di kategorinya'); return; } if (!(await tanya('Hapus ' + (d.surat ? 'surat ' : 'dokumen ') + d.kode + ' — ' + d.judul + '?' + (d.arsip ? ' (dokumen arsip)' : '')))) return; DOCS = DOCS.filter(x => x.id !== id); catat('Menghapus ' + d.kode); tutupDrawer(); shell(); toast('Dihapus: ' + d.kode); if (d._rid || d._siap) latar(() => api('hapus', { tabel: 'Dokumen', id: d._rid }), 'Hapus dokumen'); }
       else toast(act);
     });
   }
@@ -876,7 +998,7 @@
       d.riwayat.push(itemRev);
       catat('Mengunggah revisi ' + d.rev + ' ' + d.kode + (catatan ? ' — ' + catatan : ''));
       tutupDrawer(); toast('Revisi ' + d.rev + ' tersimpan: ' + d.kode); shell(); detail(id);
-      if (d._rid) latar((async () => { await api('tambah', { tabel: 'Revisi', data: { dokumen_id: String(d._rid), rev: String(d.rev), tanggal: HARI_INI, oleh: PERAN_AKTIF, catatan, file_id, file_nama: file_nama || d.berkas, file_url } }); await api('ubah', { tabel: 'Dokumen', id: d._rid, data: dokKeServer(d) }); })(), 'Simpan revisi');
+      if (d._rid) { const dataRev = { dokumen_id: String(d._rid), rev: String(d.rev), tanggal: HARI_INI, oleh: PERAN_AKTIF, catatan, file_id, file_nama: file_nama || d.berkas, file_url }, dataDok = dokKeServer(d); latar(() => kirimBatch([{ aksi: 'tambah', tabel: 'Revisi', data: Object.assign({}, dataRev, { dokumen_id: String(d._rid) }) }, { aksi: 'ubah', tabel: 'Dokumen', id: d._rid, data: dataDok }]), 'Simpan revisi'); }
     };
   }
 
@@ -918,13 +1040,13 @@
           d = cariDok(o.id);
           Object.assign(d, { judul: o.judul, kat: o.kat, tpl: o.tpl, terbit: o.tanggal, status: stt }); if (d.surat) d.alur = o.alur === 'Diajukan' ? 'Diajukan' : 'Draf';
           catat((d.alur === 'Diajukan' ? 'Mengajukan pengesahan ' : 'Memperbarui draf ') + d.kode);
-          if (d._rid) latar(api('ubah', { tabel: 'Dokumen', id: d._rid, data: dokKeServer(d) }), 'Simpan dokumen');
+          if (d._rid || d._siap) latar(() => api('ubah', { tabel: 'Dokumen', id: d._rid, data: dokKeServer(d) }), 'Simpan dokumen');
         } else {
           const m = String(o.nomor || '').match(/^(\d+)/); if (m) seq.SURAT = Math.max(seq.SURAT || 0, +m[1]);
           d = { id: DOCS.length + 1, kode: o.nomor, kat: o.kat, judul: o.judul, pemilik: (typeof bagianSaya === 'function' && bagianSaya()) || 'Sekretariat', terbit: o.tanggal || HARI_INI, sampai: '', status: stt, rev: 1, berkas: o.judul.replace(/[^A-Za-z0-9]+/g, '_').slice(0, 40) + '.pdf', tpl: o.tpl };
           if (o.surat) { d.surat = true; d.alur = o.alur; }
           DOCS.push(d); catat('Membuat ' + o.jenis.toLowerCase() + ' ' + d.kode + ' dari templat');
-          latar(api('tambah', { tabel: 'Dokumen', data: dokKeServer(d) }).then(b => { if (b && b.id) { d._rid = b.id; d.id = b.id; } }), 'Simpan dokumen');
+          d._siap = true; latar(() => api('tambah', { tabel: 'Dokumen', data: dokKeServer(d) }).then(b => { if (b && b.id) { d._lokal = d.id; d._rid = b.id; d.id = b.id; } }), 'Simpan dokumen');
         }
       } catch (err) { toast(err.message); return; }
       toast((d.surat ? (d.alur === 'Diajukan' ? 'Diajukan ke Ketua: ' : 'Draf tersimpan: ') : (stt === 'Berlaku' ? 'Diarsipkan: ' : 'Draf tersimpan: ')) + d.kode);
@@ -990,7 +1112,7 @@
       if (sr) { d.surat = true; d.alur = f.status.value === 'Berlaku' ? 'Disahkan' : 'Draf'; }
       DOCS.push(d); catat('Mengunggah ' + d.judul);
       tutupDrawer(); toast('Dokumen tersimpan: ' + d.kode + (file_url ? ' (berkas di Drive)' : '')); if (sr) pergi('keluar'); else pergi('dokumen', k);
-      latar(api('tambah', { tabel: 'Dokumen', data: dokKeServer(d) }).then(b => { if (b && b.id) { d._rid = b.id; d.id = b.id; } }), 'Simpan dokumen');
+      d._siap = true; latar(() => api('tambah', { tabel: 'Dokumen', data: dokKeServer(d) }).then(b => { if (b && b.id) { d._lokal = d.id; d._rid = b.id; d.id = b.id; } }), 'Simpan dokumen');
     };
   }
 

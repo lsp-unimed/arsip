@@ -48,10 +48,33 @@ Templat, Kop, Pengguna, Log + Petunjuk.
   `{aksi:'list'|'ambil'|'tambah'|'ubah'|'hapus', tabel, id, data, opsi, token}`
 - Khusus (butuh login): `cekNomor {nomor}`, `saranNomor {jenis,bulan,tahun}`, `ringkasan {}`
 
+
+## Pembaruan 10 Oktober 2026 — kecepatan & keamanan
+
+Setelah menempel `Code.gs` versi ini:
+
+1. **Deploy > Manage deployments > pensil > Version: New version > Deploy** (URL `/exec` tetap).
+2. Jalankan **sekali** fungsi `privatkanBerkas()` dari editor (Run). Ini mencabut akses
+   "siapa saja yang memiliki link" dari berkas arsip lama. Log eksekusi menampilkan jumlahnya.
+3. Tidak perlu menjalankan `siapkanSheet()` lagi: struktur tab otomatis disesuaikan bila SKEMA berubah.
+
+Yang berubah:
+
+- **Hak akses dijaga di server** (`izinTabel_`, `saringBaca_`), sama dengan aturan tampilan:
+  Ketua/Admin/Sekretariat penuh; bidang hanya kategorinya; kategori ASR/ASM tidak terkirim ke peran
+  yang tidak berhak; hanya Ketua yang dapat mengesahkan surat; bidang tujuan disposisi hanya dapat
+  menandai surat selesai; tab Log tidak dapat diubah/dihapus; tab Pengguna hanya lewat menu Pengguna
+  (salt/hash tidak pernah dikirim).
+- **Berkas privat**: `unggahBerkas` tidak lagi membagikan tautan publik. Berkas dibuka lewat aksi
+  `lihatBerkas` setelah hak akses diperiksa, dan setiap pembukaan tercatat di Log.
+- **Lebih cepat**: data akun di-cache 60 detik (dihapus otomatis saat akun diubah), struktur tab tidak
+  lagi diperiksa di setiap permintaan, login langsung membawa data dasbor, dan catatan aktivitas ikut
+  dalam panggilan simpan (tidak ada panggilan Log terpisah). Disposisi dan revisi memakai aksi `batch`
+  (satu panggilan).
+- Aksi baru: `lihatBerkas {file_id}`, `catat {pesan}`, `batch {ops:[...]}`; `login` menerima `awal:true`.
+
 ## Catatan
 
 - Nomor surat **diketik manual** sesuai buku agenda; `cekNomor` menolak duplikat,
   `saranNomor` memberi saran urutan (075, 076, …) + 5 nomor terakhir.
 - File PDF disimpan di Drive `ARSIP_LSP/<kategori>/`; cukup simpan `file_id`.
-- Frontend `arsip/` masih mode demo (data contoh di browser); penyambungan
-  `API_URL` ke backend ini langkah berikutnya setelah URL `/exec` ada.

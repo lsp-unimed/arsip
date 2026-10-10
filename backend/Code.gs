@@ -12,6 +12,8 @@
  * username, nama, peran, salt, password_hash, aktif). Sesi memakai token
  * (CacheService 6 jam, "ingat saya" 7 hari via Script Properties).
  *
+ * Hak akses per peran DIJAGA DI SERVER (izinTabel_/saringBaca_), sama dengan aturan tampilan.
+ * Berkas Drive privat; dibuka lewat aksi lihatBerkas. Jalankan privatkanBerkas() sekali untuk berkas lama.
  * Aksi bawaan (semua tabel): ping, skema, masuk, list, ambil, tambah, ubah, hapus
  * GET  : ?aksi=list&tabel=x (baca saja, tanpa token tidak dilayani kecuali ping/skema publik)
  * POST : body JSON {aksi, tabel, id, data, opsi, token} sebagai text/plain
@@ -32,6 +34,7 @@ var CONFIG = {
 };
 
 var SS_ = null;
+var SHEET_MEMO = {}, JUDUL_MEMO = {}, BACA_MEMO = {}, VERSI_DICEK = false; // berlaku selama satu eksekusi
 function ss_() {
   if (SS_) return SS_;
   if (CONFIG.SPREADSHEET_ID) {
@@ -207,7 +210,8 @@ var AKSI_KHUSUS = {
   // Drive: siapkan folder arsip + subfolder per kategori. Jalankan sekali dari editor (Run).
   siapkanDrive: {
     izin: 'admin',
-    jalankan: function () {
+    jalankan: function (body, user) {
+      if (!penuh_(kunciPeran_(user.peran))) throw galat(TOLAK_);
       return siapkanDrive_();
     }
   },
@@ -215,25 +219,64 @@ var AKSI_KHUSUS = {
   // Batas praktis ~10 MB (Apps Script). Untuk berkas besar: unggah manual ke Drive lalu tempel link via Ubah data.
   unggahBerkas: {
     izin: 'admin',
-    jalankan: function (body) {
+    jalankan: function (body, user) {
       var d = body.data || {};
-      var nama = String(d.nama || 'berkas.pdf');
-      var mime = String(d.mime || 'application/pdf');
+      var nama = String(d.nama || 'berkas.pdf').replace(/[\\/:*?"<>|]+/g, '_').slice(0, 120);
       var b64 = String(d.base64 || '');
       if (!b64) throw galat('Berkas kosong.');
       var kat = String(d.kat || '');
-      var folder = folderArsip_(kat);
-      var blob = Utilities.newBlob(Utilities.base64Decode(b64.split(',').pop()), mime, nama);
-      var f = folder.createFile(blob);
-      try { f.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW); } catch (e) {}
-      return { file_id: f.getId(), file_nama: f.getName(), file_url: 'https://drive.google.com/file/d/' + f.getId() + '/view' };
+      if ((SKEMA.Dokumen.aturan.kat.pilihan || []).indexOf(kat) < 0) throw galat('Kategori tidak dikenal.');
+      if (!bolehUbahKat_(kunciPeran_(user.peran), kat)) throw galat('Kategori ' + kat + ' di luar wewenang peran Anda.');
+      var ext = (nama.match(/\.([a-z0-9]+)$/i) || [])[1];
+      var MIME = { pdf: 'application/pdf', jpg: 'image/jpeg', jpeg: 'image/jpeg', png: 'image/png', doc: 'application/msword',
+        docx: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document', xls: 'application/vnd.ms-excel',
+        xlsx: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' };
+      if (!ext || !MIME[ext.toLowerCase()]) throw galat('Jenis berkas tidak diizinkan (PDF, DOC/DOCX, XLS/XLSX, JPG, PNG).');
+      var bytes = Utilities.base64Decode(b64.split(',').pop());
+      if (bytes.length > 10 * 1024 * 1024) throw galat('Berkas lebih dari 10 MB.');
+      var f = folderArsip_(kat).createFile(Utilities.newBlob(bytes, MIME[ext.toLowerCase()], nama));
+      // Berkas TIDAK dibagikan publik; dibuka lewat aksi lihatBerkas setelah hak akses diperiksa.
+      return { file_id: f.getId(), file_nama: f.getName(), file_url: '' };
+    }
+  },
+  // Buka berkas arsip tanpa membuka akses publik: {file_id} -> {nama, mime, base64}
+  lihatBerkas: {
+    izin: 'admin',
+    jalankan: function (body, user) {
+      return lihatBerkas_(user, String((body.data && body.data.file_id) || ''));
+    }
+  },
+  // Catatan aktivitas yang tidak disertai perubahan data (mis. membuka/mencetak).
+  catat: {
+    izin: 'admin',
+    jalankan: function (body, user) {
+      var pesan = String((body.data && body.data.pesan) || '').trim().slice(0, 300);
+      if (!pesan) return false;
+      var c = CacheService.getScriptCache(), k = 'catat_' + user.username + '_' + Math.floor(Date.now() / 60000);
+      var n = Number(c.get(k) || 0) + 1; c.put(k, String(n), 120);
+      if (n > 60) return false;
+      catatLog(user, pesan);
+      return true;
+    }
+  },
+  // Beberapa perubahan dalam SATU panggilan (mis. disposisi + status surat, revisi + dokumen).
+  batch: {
+    izin: 'admin',
+    jalankan: function (body, user) {
+      var ops = (body.data && body.data.ops) || [];
+      if (!ops.length || ops.length > 10) throw galat('Jumlah operasi tidak valid.');
+      var hasil = ops.map(function (o) {
+        return jalankanTabel_(user, String(o.aksi || ''), String(o.tabel || ''), String(o.id || ''), o.data || {}, o.opsi || {}, '', true);
+      });
+      catatLog(user, teksCatatan_(body.catatan) || ops.map(function (o) { return o.aksi + ' ' + o.tabel; }).join(', '));
+      return hasil;
     }
   },
   // Ringkasan dashboard: hitung dokumen per status, surat masuk terbuka, progres agenda.
   ringkasan: {
     izin: 'admin',
-    jalankan: function () {
-      var dok = bacaTabel('Dokumen');
+    jalankan: function (body, user) {
+      var dok = saringBaca_(user, 'Dokumen', bacaTabel('Dokumen'));
       var sm = bacaTabel('SuratMasuk');
       var ag = bacaTabel('Agenda');
       var butir = bacaTabel('AgendaButir');
@@ -254,21 +297,8 @@ var AKSI_KHUSUS = {
   // Hasil di-cache 60 detik; dihapus otomatis tiap tambah/ubah/hapus.
   dasbor: {
     izin: 'admin',
-    jalankan: function () {
-      var cache = CacheService.getScriptCache();
-      try { var hit = cache.get('dasbor'); if (hit) return JSON.parse(hit); } catch (e) {}
-      var out = {
-        dok: bacaTabel('Dokumen'),
-        rev: bacaTabel('Revisi'),
-        sm: bacaTabel('SuratMasuk'),
-        disp: bacaTabel('Disposisi'),
-        ag: bacaTabel('Agenda'),
-        agB: bacaTabel('AgendaButir'),
-        log: bacaTabel('Log').slice(-60),
-        kop: bacaTabel('Kop')[0] || null
-      };
-      try { cache.put('dasbor', JSON.stringify(out), 60); } catch (e) {}
-      return out;
+    jalankan: function (body, user) {
+      return dasborUntuk_(user);
     }
   }
 };
@@ -301,7 +331,12 @@ function jalankan(body, lewatPost) {
     var aksi = String(body.aksi || '');
 
     if (aksi === 'ping')  return balas({ ok: true, data: { waktu: new Date().toISOString() } });
-    if (aksi === 'login') return balas({ ok: true, data: masuk(body.data || {}) });
+    if (aksi === 'login') {
+      var m = masuk(body.data || {});
+      // Data dasbor ikut dikirim agar panel terbuka tanpa panggilan kedua.
+      if (body.data && body.data.awal) { try { m.awal = dasborUntuk_(m.user); } catch (e) { /* panel memuat sendiri */ } }
+      return balas({ ok: true, data: m });
+    }
     if (aksi === 'skema') {
       var u0 = body.token ? authUser(body.token) : null;
       return balas({ ok: true, data: skemaPublik(!!u0) });
@@ -323,20 +358,7 @@ function jalankan(body, lewatPost) {
       return balas({ ok: true, data: AKSI_KHUSUS[aksi].jalankan(body, user) });
     }
 
-    var nama = String(body.tabel || '');
-    var t = SKEMA[nama];
-    if (!t) throw galat('Tabel "' + nama + '" tidak dikenal.');
-    if (!t.izin || !t.izin[aksi]) throw galat('Aksi tidak diizinkan.');
-
-    var hasil;
-    switch (aksi) {
-      case 'list':   hasil = list(nama, body.opsi || {}, true); break;
-      case 'ambil':  hasil = ambil(nama, String(body.id || ''), true); break;
-      case 'tambah': hasil = tambah(nama, body.data || {}, true); if (nama !== 'Log') { try { catatLog(user, 'Menambah ' + nama + ': ' + ringkasData(body.data || {})); } catch (e) {} } break;
-      case 'ubah':   hasil = ubah(nama, String(body.id || ''), body.data || {}, true); if (nama !== 'Log') { try { catatLog(user, 'Mengubah ' + nama + ' ' + body.id); } catch (e) {} } break;
-      case 'hapus':  hasil = hapus(nama, String(body.id || '')); if (nama !== 'Log') { try { catatLog(user, 'Menghapus ' + nama + ' ' + body.id); } catch (e) {} } break;
-      default: throw galat('Aksi tidak dikenal.');
-    }
+    var hasil = jalankanTabel_(user, aksi, String(body.tabel || ''), String(body.id || ''), body.data || {}, body.opsi || {}, body.catatan, false);
     return balas({ ok: true, data: hasil });
   } catch (err) {
     if (err && err.publik) return balas({ ok: false, pesan: err.message });
@@ -366,9 +388,240 @@ function catatLog(user, aksi) {
       return '';
     });
     sh.appendRow(bar);
+    delete BACA_MEMO.Log; // dasbor tetap di-cache; riwayat aktivitas boleh tertinggal paling lama 60 detik
   } catch (e) { /* log tidak boleh menggagalkan transaksi */ }
 }
 
+
+
+// ===================== Hak akses per peran (dijaga di server) =====================
+// Sama persis dengan aturan tampilan: Ketua/Admin/Sekretariat penuh; bidang hanya kategorinya.
+var PENUH_ = ['Ketua', 'Admin', 'Sekretariat'];
+var KAT_TERBATAS_ = ['ASR', 'ASM'];
+var HAK_UBAH_ = { Ketua: 'SEMUA', Admin: 'SEMUA', Sekretariat: 'SEMUA', Mutu: ['MUT', 'MNJ', 'ASR'], Sertifikasi: ['ASR', 'TUK', 'ASM'], Skema: ['SKM', 'MNJ'], Administrasi: ['KOR', 'ASM', 'MNJ'] };
+var BAGIAN_ = { Sekretariat: 'Sekretariat', Administrasi: 'Administrasi', Sertifikasi: 'Bidang Sertifikasi', Mutu: 'Manajemen Mutu', Skema: 'Bidang Skema' };
+
+function kunciPeran_(peran) {
+  var p = String(peran || '').toLowerCase();
+  if (p.indexOf('ketua') >= 0) return 'Ketua';
+  if (p.indexOf('admin') >= 0 && p.indexOf('administrasi') < 0) return 'Admin';
+  if (p.indexOf('sekretariat') >= 0) return 'Sekretariat';
+  if (p.indexOf('mutu') >= 0) return 'Mutu';
+  if (p.indexOf('sertifikasi') >= 0) return 'Sertifikasi';
+  if (p.indexOf('skema') >= 0) return 'Skema';
+  return 'Administrasi';
+}
+function penuh_(k) { return PENUH_.indexOf(k) >= 0; }
+function bolehLihatKat_(k, kat) {
+  if (penuh_(k) || KAT_TERBATAS_.indexOf(kat) < 0) return true;
+  if (kat === 'ASR') return k === 'Mutu' || k === 'Sertifikasi';
+  return k === 'Sertifikasi' || k === 'Administrasi';
+}
+function bolehUbahKat_(k, kat) {
+  var h = HAK_UBAH_[k];
+  return h === 'SEMUA' || (Array.isArray(h) && h.indexOf(kat) >= 0);
+}
+function milik_(k, baris) {
+  var b = BAGIAN_[k], p = String((baris && baris.pemilik) || '');
+  if (!b || !p) return false;
+  var akhir = function (x) { var w = String(x).toLowerCase().split(/[^a-z]+/).filter(Boolean); return w[w.length - 1]; };
+  return akhir(b) === akhir(p);
+}
+function barisById_(nama, id) {
+  return bacaTabel(nama).filter(function (r) { return String(r.id) === String(id); })[0] || null;
+}
+function tugasDisposisi_(k, suratId) {
+  var b = BAGIAN_[k];
+  return !!b && bacaTabel('Disposisi').some(function (x) { return String(x.surat_id) === String(suratId) && String(x.ke).indexOf(b) >= 0; });
+}
+var TOLAK_ = 'Peran Anda tidak berwenang untuk perubahan ini.';
+
+/** Periksa izin satu operasi tabel. Mengembalikan data yang boleh ditulis (bisa dipersempit). */
+function izinTabel_(user, aksi, nama, id, data) {
+  var k = kunciPeran_(user.peran), baca = aksi === 'list' || aksi === 'ambil';
+  switch (nama) {
+    case 'Pengguna': throw galat('Akun dikelola lewat menu Pengguna.');
+    case 'Log':
+      if (baca) return data;
+      throw galat('Riwayat aktivitas tidak dapat ditambah, diubah, atau dihapus langsung.');
+    case 'Templat': case 'TemplatKustom': case 'Kop': case 'Nomor':
+      if (baca || penuh_(k)) return data;
+      throw galat(TOLAK_);
+    case 'Agenda': case 'AgendaButir':
+      if (penuh_(k)) return data;
+      throw galat('Agenda hanya untuk Ketua, Admin, dan Sekretariat.');
+    case 'Disposisi':
+      if (baca || penuh_(k)) return data;
+      throw galat('Disposisi dibuat oleh Ketua, Admin, atau Sekretariat.');
+    case 'SuratMasuk':
+      if (baca || penuh_(k)) return data;
+      if (aksi === 'ubah' && tugasDisposisi_(k, id)) {
+        if (String(data.status || '') !== 'Selesai') throw galat('Anda hanya dapat menandai selesai surat yang didisposisikan kepada bagian Anda.');
+        return { status: 'Selesai' };
+      }
+      throw galat('Surat masuk dicatat dan diubah oleh Ketua, Admin, atau Sekretariat.');
+    case 'Dokumen':
+      if (baca) return data;
+      if (aksi === 'tambah') {
+        if (!bolehUbahKat_(k, String(data.kat || ''))) throw galat('Kategori ' + (data.kat || '-') + ' di luar wewenang peran Anda.');
+        return data;
+      }
+      var lama = barisById_('Dokumen', id);
+      if (!lama || !bolehLihatKat_(k, lama.kat)) throw galat('Data tidak ditemukan.');
+      if (!bolehUbahKat_(k, lama.kat)) throw galat('Kategori ' + lama.kat + ' di luar wewenang peran Anda.');
+      if (aksi === 'hapus') {
+        if (!penuh_(k) && !milik_(k, lama)) throw galat('Hanya Admin/Sekretariat, atau pemilik dokumen di kategorinya.');
+        return data;
+      }
+      if (data.kat && !bolehUbahKat_(k, String(data.kat))) throw galat('Kategori ' + data.kat + ' di luar wewenang peran Anda.');
+      if (String(data.alur || '') === 'Disahkan' && String(lama.alur || '') !== 'Disahkan' && k !== 'Ketua') throw galat('Hanya Ketua LSP yang dapat mengesahkan surat.');
+      return data;
+    case 'Revisi':
+      if (baca) return data;
+      if (aksi === 'tambah') {
+        var dk = barisById_('Dokumen', String(data.dokumen_id || ''));
+        if (!dk || !bolehLihatKat_(k, dk.kat) || !bolehUbahKat_(k, dk.kat)) throw galat(TOLAK_);
+        return data;
+      }
+      if (penuh_(k)) return data;
+      throw galat(TOLAK_);
+  }
+  throw galat('Tabel "' + nama + '" tidak dikenal.');
+}
+
+/** Saring baris yang boleh DIBACA peran ini (kategori terbatas disembunyikan di server). */
+function saringBaca_(user, nama, baris) {
+  var k = kunciPeran_(user.peran);
+  if (penuh_(k)) return baris;
+  if (nama === 'Dokumen') return baris.filter(function (r) { return bolehLihatKat_(k, r.kat); });
+  if (nama === 'Revisi') {
+    var boleh = {};
+    bacaTabel('Dokumen').forEach(function (d) { if (bolehLihatKat_(k, d.kat)) boleh[String(d.id)] = 1; });
+    return baris.filter(function (r) { return boleh[String(r.dokumen_id)]; });
+  }
+  return baris;
+}
+
+function teksCatatan_(c) { return String(c || '').replace(/[\r\n]+/g, ' ').trim().slice(0, 300); }
+
+/** Satu operasi tabel lengkap: izin -> jalankan -> catat. */
+function jalankanTabel_(user, aksi, nama, id, data, opsi, catatan, tanpaLog) {
+  var t = SKEMA[nama];
+  if (!t) throw galat('Tabel "' + nama + '" tidak dikenal.');
+  if (['list', 'ambil', 'tambah', 'ubah', 'hapus'].indexOf(aksi) < 0) throw galat('Aksi tidak dikenal.');
+  data = izinTabel_(user, aksi, nama, id, data);
+  var hasil;
+  switch (aksi) {
+    case 'list':   hasil = list(nama, opsi || {}, true, user); break;
+    case 'ambil':
+      hasil = ambil(nama, id, true);
+      if (!saringBaca_(user, nama, [hasil]).length) throw galat('Data tidak ditemukan.');
+      break;
+    case 'tambah': hasil = tambah(nama, data, true); break;
+    case 'ubah':   hasil = ubah(nama, id, data, true); break;
+    case 'hapus':  hasil = hapus(nama, id); break;
+  }
+  if (!tanpaLog && (aksi === 'tambah' || aksi === 'ubah' || aksi === 'hapus')) {
+    var bawaan = { tambah: 'Menambah ', ubah: 'Mengubah ', hapus: 'Menghapus ' }[aksi] + nama + ' ' + (aksi === 'tambah' ? ringkasData(data) : id);
+    catatLog(user, teksCatatan_(catatan) || bawaan);
+  }
+  return hasil;
+}
+
+// ===================== Dasbor (satu panggilan untuk semua data panel) =====================
+function dasborMentah_() {
+  var cache = CacheService.getScriptCache();
+  try { var hit = cache.get('dasbor'); if (hit) return JSON.parse(hit); } catch (e) {}
+  var out = {
+    dok: bacaTabel('Dokumen'),
+    rev: bacaTabel('Revisi'),
+    sm: bacaTabel('SuratMasuk'),
+    disp: bacaTabel('Disposisi'),
+    ag: bacaTabel('Agenda'),
+    agB: bacaTabel('AgendaButir'),
+    log: bacaTabel('Log').slice(-60),
+    kop: bacaTabel('Kop')[0] || null
+  };
+  try { cache.put('dasbor', JSON.stringify(out), 60); } catch (e) { /* > 100 KB: tidak di-cache, tetap dikirim */ }
+  return out;
+}
+function dasborUntuk_(user) {
+  var d = dasborMentah_(), k = kunciPeran_(user.peran);
+  d.dok = saringBaca_(user, 'Dokumen', d.dok);
+  if (!penuh_(k)) {
+    var boleh = {}; d.dok.forEach(function (x) { boleh[String(x.id)] = 1; });
+    d.rev = d.rev.filter(function (r) { return boleh[String(r.dokumen_id)]; });
+    d.ag = []; d.agB = [];
+  }
+  d.saya = { username: user.username, nama: user.nama, peran: user.peran };
+  return d;
+}
+
+// ===================== Berkas arsip privat =====================
+function lihatBerkas_(user, fid) {
+  if (!/^[A-Za-z0-9_-]{20,}$/.test(fid)) throw galat('Berkas tidak valid.');
+  var k = kunciPeran_(user.peran), ok = false, ref = '';
+  var dok = bacaTabel('Dokumen').filter(function (r) { return String(r.file_id) === fid; })[0];
+  if (dok) { ok = bolehLihatKat_(k, dok.kat); ref = dok.kode; }
+  else {
+    var rv = bacaTabel('Revisi').filter(function (r) { return String(r.file_id) === fid; })[0];
+    if (rv) { var dk = barisById_('Dokumen', rv.dokumen_id); ok = !!dk && bolehLihatKat_(k, dk.kat); ref = (dk ? dk.kode : '') + ' rev. ' + rv.rev; }
+    else {
+      var sm = bacaTabel('SuratMasuk').filter(function (r) { return String(r.file_id) === fid; })[0];
+      if (sm) { ok = true; ref = sm.agenda; }
+    }
+  }
+  var f = null;
+  if (ok) { try { f = DriveApp.getFileById(fid); } catch (e) { f = null; } }
+  if (!ok || !f || !diFolderArsip_(f)) throw galat('Berkas tidak ditemukan atau di luar wewenang Anda.');
+  var blob = f.getBlob(), bytes = blob.getBytes();
+  if (bytes.length > 25 * 1024 * 1024) throw galat('Berkas terlalu besar untuk dibuka di sini; buka langsung dari Drive LSP.');
+  catatLog(user, 'Membuka berkas ' + ref);
+  return { nama: f.getName(), mime: blob.getContentType() || 'application/octet-stream', base64: Utilities.base64Encode(bytes) };
+}
+function diFolderArsip_(f) {
+  var akar = folderArsip_('').getId();
+  var antrian = [], it = f.getParents();
+  while (it.hasNext()) antrian.push({ f: it.next(), d: 0 });
+  while (antrian.length) {
+    var x = antrian.shift();
+    if (x.f.getId() === akar) return true;
+    if (x.d < 3) { var p = x.f.getParents(); while (p.hasNext()) antrian.push({ f: p.next(), d: x.d + 1 }); }
+  }
+  return false;
+}
+/** Jalankan SEKALI dari editor: cabut akses "siapa saja yang memiliki link" dari semua berkas arsip lama. */
+function privatkanBerkas() {
+  var n = 0, gagal = 0;
+  var jalan = function (folder) {
+    var fs = folder.getFiles();
+    while (fs.hasNext()) {
+      var f = fs.next();
+      try { if (f.getSharingAccess() !== DriveApp.Access.PRIVATE) { f.setSharing(DriveApp.Access.PRIVATE, DriveApp.Permission.NONE); n++; } } catch (e) { gagal++; }
+    }
+    var sub = folder.getFolders();
+    while (sub.hasNext()) jalan(sub.next());
+  };
+  jalan(folderArsip_(''));
+  var pesan = 'Berkas dijadikan privat: ' + n + (gagal ? ' · gagal: ' + gagal : '');
+  Logger.log(pesan);
+  return pesan;
+}
+
+// ===================== Cache akun (pemeriksaan sesi) =====================
+/** Data akun untuk pemeriksaan sesi; disimpan 60 detik di cache dan dihapus setiap akun diubah. */
+function akun_(username) {
+  var un = String(username || '').toLowerCase(), c = CacheService.getScriptCache(), key = 'akun_' + un;
+  var hit = c.get(key);
+  if (hit) return JSON.parse(hit);
+  var r = bacaTabel('Pengguna').filter(function (x) { return String(x.username).toLowerCase() === un; })[0];
+  var o = r ? { username: r.username, nama: r.nama, peran: r.peran, aktif: r.aktif } : null;
+  if (o) { try { c.put(key, JSON.stringify(o), 60); } catch (e) {} }
+  return o;
+}
+function lupakanAkun_(username) {
+  try { CacheService.getScriptCache().remove('akun_' + String(username || '').toLowerCase()); } catch (e) {}
+}
 
 // ===================== Login ala SIPINTAR =====================
 
@@ -440,7 +693,7 @@ function authUser(token) {
   var sesi = bacaSesi_(token);
   if (!sesi) throw galat('Sesi berakhir. Silakan login kembali.');
   // Periksa ulang akun setiap permintaan: nonaktif / peran berubah / password diganti langsung berlaku.
-  var u = bacaTabel('Pengguna').filter(function (r) { return String(r.username).toLowerCase() === String(sesi.username).toLowerCase(); })[0];
+  var u = akun_(sesi.username);
   var ver = Number(PropertiesService.getScriptProperties().getProperty('uver_' + String(sesi.username).toLowerCase()) || 0);
   if (!u || String(u.aktif).toUpperCase() === 'TIDAK' || ver > Number(sesi.t || 0)) {
     hapusSesi_(token);
@@ -483,6 +736,7 @@ function bersihkanSesi_() {
   });
 }
 function cabutSesi_(username) {
+  lupakanAkun_(username);
   PropertiesService.getScriptProperties().setProperty('uver_' + String(username).toLowerCase(), String(Date.now()));
 }
 
@@ -553,6 +807,7 @@ function simpanPengguna_(user, d) {
     }
   });
   hapusCache('Pengguna');
+  lupakanAkun_(un); lupakanAkun_(d.lama || d.usernameLama || un);
   return hasil;
 }
 
@@ -660,7 +915,7 @@ function denganKunciNilai(fn) {
 
 // ===================== Aksi =====================
 
-function list(nama, opsi, isAdmin) {
+function list(nama, opsi, isAdmin, user) {
   var kunciCache = 'list:' + nama;
   var cache = CacheService.getScriptCache();
   var baris;
@@ -671,6 +926,8 @@ function list(nama, opsi, isAdmin) {
     baris = bacaTabel(nama).map(function (r) { return saring(nama, r, isAdmin); });
     if (!isAdmin) { try { cache.put(kunciCache, JSON.stringify(baris), DETIK_CACHE); } catch (e) {} }
   }
+  if (user) baris = saringBaca_(user, nama, baris);
+  if (nama === 'Pengguna') baris = baris.map(function (r) { var o = {}; Object.keys(r).forEach(function (k) { if (k !== 'salt' && k !== 'password_hash') o[k] = r[k]; }); return o; });
 
   if (opsi.cari) {
     var q = String(opsi.cari).toLowerCase();
@@ -716,6 +973,7 @@ function tambah(nama, data, isAdmin) {
     sh.appendRow(judul.map(function (j) { return bersih[j] != null ? bersih[j] : ''; }));
   });
   hapusCache(nama);
+  delete BACA_MEMO[nama];
   return saring(nama, bersih, isAdmin);
 }
 
@@ -734,6 +992,7 @@ function ubah(nama, id, data, isAdmin) {
     judul.forEach(function (j, i) { hasil[j] = nilai[i] instanceof Date ? nilai[i].toISOString() : nilai[i]; });
   });
   hapusCache(nama);
+  delete BACA_MEMO[nama];
   return saring(nama, hasil, isAdmin);
 }
 
@@ -744,6 +1003,7 @@ function hapus(nama, id) {
     sh.deleteRow(cariBaris(sh, id));
   });
   hapusCache(nama);
+  delete BACA_MEMO[nama];
   return { id: id };
 }
 
@@ -805,20 +1065,49 @@ function batasiKiriman() {
 // ===================== Spreadsheet =====================
 
 function bacaTabel(nama) {
+  if (BACA_MEMO[nama]) return BACA_MEMO[nama].slice();
   var nilai = sheetTabel(nama).getDataRange().getValues();
   var judul = (nilai.shift() || []).map(String);
-  return nilai
+  JUDUL_MEMO[nama] = judul;
+  BACA_MEMO[nama] = nilai
     .filter(function (b) { return b.join('') !== ''; })
     .map(function (b) {
       var o = {};
       judul.forEach(function (j, i) { if (j) o[j] = b[i] instanceof Date ? b[i].toISOString() : b[i]; });
       return o;
     });
+  return BACA_MEMO[nama].slice();
 }
 
+/** Ambil sheet tabel. Pemeriksaan struktur kolom hanya dijalankan bila SKEMA berubah (bukan tiap permintaan). */
 function sheetTabel(nama) {
+  if (SHEET_MEMO[nama]) return SHEET_MEMO[nama];
+  pastikanVersiSkema_();
+  var sh = ss_().getSheetByName(nama) || pastikanSkema_(nama);
+  SHEET_MEMO[nama] = sh;
+  return sh;
+}
+function versiSkema_() {
+  var teks = Object.keys(SKEMA).map(function (n) { return n + ':' + SKEMA[n].kolom.join(','); }).join('|');
+  return Utilities.computeDigest(Utilities.DigestAlgorithm.MD5, teks).map(function (b) { return ('0' + (b & 0xff).toString(16)).slice(-2); }).join('');
+}
+function pastikanVersiSkema_() {
+  if (VERSI_DICEK) return;
+  VERSI_DICEK = true;
+  var v = versiSkema_(), c = CacheService.getScriptCache();
+  if (c.get('skema_v') === v) return;
+  var p = PropertiesService.getScriptProperties();
+  if (p.getProperty('skema_v') !== v) {
+    Object.keys(SKEMA).forEach(function (n) { pastikanSkema_(n); });
+    p.setProperty('skema_v', v);
+  }
+  c.put('skema_v', v, 21600);
+}
+/** Membuat/menyesuaikan tab + header satu tabel (dipakai siapkanSheet dan saat SKEMA berubah). */
+function pastikanSkema_(nama) {
   var ss = ss_();
   var sh = ss.getSheetByName(nama) || ss.insertSheet(nama);
+  delete JUDUL_MEMO[nama]; delete BACA_MEMO[nama];
   var perlu = ['id', 'dibuat', 'diubah'].concat(SKEMA[nama].kolom);
   if (sh.getLastRow() === 0) {
     sh.getRange('A:Z').setNumberFormat('@');
@@ -834,6 +1123,7 @@ function sheetTabel(nama) {
     sh.getRange(1, mulai, 1, kurang.length).setValues([kurang]).setFontWeight('bold');
     sh.getRange(1, mulai, sh.getMaxRows(), kurang.length).setNumberFormat('@');
     if (kurang.indexOf('id') >= 0) isiIdKosong(sh);
+    delete JUDUL_MEMO[nama];
   }
   return sh;
 }
@@ -847,8 +1137,12 @@ function isiIdKosong(sh) {
 }
 
 function judulKolom(sh) {
+  var key = sh.getName();
+  if (JUDUL_MEMO[key]) return JUDUL_MEMO[key];
   var n = sh.getLastColumn();
-  return n ? sh.getRange(1, 1, 1, n).getValues()[0].map(String) : [];
+  var j = n ? sh.getRange(1, 1, 1, n).getValues()[0].map(String) : [];
+  JUDUL_MEMO[key] = j;
+  return j;
 }
 
 function cariBaris(sh, id) {
@@ -893,7 +1187,8 @@ function hapusCache(nama) { CacheService.getScriptCache().remove('list:' + nama)
 
 /** Jalankan sekali dari editor: membuat/menyesuaikan semua tab dan memicu layar izin Google. */
 function siapkanSheet() {
-  Object.keys(SKEMA).forEach(function (n) { sheetTabel(n); });
+  Object.keys(SKEMA).forEach(function (n) { pastikanSkema_(n); });
+  PropertiesService.getScriptProperties().setProperty('skema_v', versiSkema_());
   migrasiPengguna_();
   migrasiKop_();
   Logger.log('Siap: ' + Object.keys(SKEMA).join(', '));

@@ -67,7 +67,7 @@
         { k: 'perihal', l: 'Perihal', v: 'Undangan Rapat Persiapan Penyaksian BNSP' },
         { k: 'kepada', l: 'Kepada Yth.', t: 'textarea', h: 'Satu tujuan per baris', v: 'Pengurus LSP Universitas Negeri Medan\nPara Asesor Kompetensi LSP UNIMED\nPengelola TUK di lingkungan UNIMED' },
         { k: 'pembuka', l: 'Kalimat pembuka', t: 'textarea', v: 'Sehubungan dengan rencana penyaksian (witness) uji kompetensi oleh Badan Nasional Sertifikasi Profesi (BNSP) pada 17 Oktober 2026, kami mengundang Bapak/Ibu untuk hadir pada rapat yang akan dilaksanakan pada:' },
-        { k: 'tglAcara', l: 'Hari/tanggal rapat', t: 'date', v: '2026-10-14', half: 1, grp: 'Pelaksanaan' }, { k: 'waktu', l: 'Waktu', v: '09.00 WIB s.d. selesai', half: 1 },
+        { k: 'tglAcara', l: 'Hari/tanggal rapat', t: 'date', half: 1, grp: 'Pelaksanaan' }, { k: 'waktu', l: 'Waktu', v: '09.00 WIB s.d. selesai', half: 1 },
         { k: 'tempat', l: 'Tempat', v: 'Ruang Rapat LSP UNIMED, Kampus FT UNIMED' },
         { k: 'acara', l: 'Acara', t: 'textarea', h: 'Satu butir per baris', v: 'Pemaparan kesiapan penyaksian BNSP\nPemeriksaan kelengkapan dokumen mutu dan rekaman asesmen\nPembagian tugas panitia uji kompetensi 17 Oktober 2026' },
         { k: 'penutup', l: 'Kalimat penutup', t: 'textarea', v: 'Mengingat pentingnya acara tersebut, kami mengharapkan kehadiran Bapak/Ibu tepat waktu. Atas perhatian dan kehadirannya, kami ucapkan terima kasih.' },
@@ -92,7 +92,7 @@
         { k: 'dasar', l: 'Dasar penugasan', t: 'textarea', h: 'Satu dasar per baris, boleh dikosongkan', v: 'Surat BNSP perihal Jadwal Penyaksian Uji Kompetensi LSP Universitas Negeri Medan\nKeputusan Ketua LSP UNIMED tentang Penugasan Asesor Kompetensi pada Uji Kompetensi Tanggal 17 Oktober 2026' },
         { k: 'petugas', l: 'Yang ditugaskan', t: 'textarea', r: 5, h: 'Format per baris: Nama | NIP/No. Reg. | Tugas', v: 'Ali Akbar Lubis | MET.000.000687 2023 | Asesor kompetensi\nTuti Sriwedari | MET.000.000989 2021 | Asesor kompetensi\nHanapi Hasan | MET.000.000689 2023 | Asesor kompetensi' },
         { k: 'keperluan', l: 'Untuk', t: 'textarea', v: 'Melaksanakan asesmen uji kompetensi skema Okupasi Web Developer yang disaksikan oleh BNSP' },
-        { k: 'tglTugas', l: 'Hari/tanggal', t: 'date', v: '2026-10-17', half: 1, grp: 'Pelaksanaan' }, { k: 'waktu', l: 'Waktu', v: '08.00 WIB s.d. selesai', half: 1 },
+        { k: 'tglTugas', l: 'Hari/tanggal', t: 'date', half: 1, grp: 'Pelaksanaan' }, { k: 'waktu', l: 'Waktu', v: '08.00 WIB s.d. selesai', half: 1 },
         { k: 'tempat', l: 'Tempat', v: 'TUK Multimedia dan Pemrograman, Kampus UNIMED' },
         { k: 'penutup', l: 'Kalimat penutup', t: 'textarea', v: 'Demikian surat tugas ini dibuat untuk dilaksanakan dengan penuh tanggung jawab dan melaporkan hasilnya kepada Ketua LSP.' },
         ...PENANDATANGAN
@@ -139,7 +139,7 @@
       ket: 'Berita acara kegiatan dengan tanggal terbilang dan tanda tangan dua pihak.',
       judul: (d) => 'Berita Acara ' + (d.kegiatan || ''),
       fields: [
-        { k: 'tanggal', l: 'Tanggal kegiatan', t: 'date', v: '2026-10-17' },
+        { k: 'tanggal', l: 'Tanggal kegiatan', t: 'date' },
         { k: 'kegiatan', l: 'Kegiatan', v: 'Uji Kompetensi Skema Okupasi Web Developer' },
         { k: 'tempat', l: 'Tempat', v: 'TUK Multimedia dan Pemrograman, Kampus UNIMED' },
         { k: 'uraian', l: 'Uraian / hasil', t: 'textarea', r: 6, h: 'Satu butir per baris', v: 'Jumlah asesi terdaftar: 10 orang.\nJumlah asesi hadir: 10 orang.\nAsesor yang bertugas: Ali Akbar Lubis dan Tuti Sriwedari.\nRekomendasi asesor: 9 orang kompeten (K) dan 1 orang belum kompeten (BK).\nPelaksanaan berlangsung tertib sesuai jadwal dan disaksikan oleh perwakilan BNSP.' },
@@ -159,7 +159,7 @@
       judul: (d) => 'Daftar Hadir ' + (d.kegiatan || ''),
       fields: [
         { k: 'kegiatan', l: 'Kegiatan', v: 'Rapat Persiapan Penyaksian BNSP' },
-        { k: 'tanggal', l: 'Hari/tanggal', t: 'date', v: '2026-10-14', half: 1 }, { k: 'waktu', l: 'Waktu', v: '09.00 WIB s.d. selesai', half: 1 },
+        { k: 'tanggal', l: 'Hari/tanggal', t: 'date', half: 1 }, { k: 'waktu', l: 'Waktu', v: '09.00 WIB s.d. selesai', half: 1 },
         { k: 'tempat', l: 'Tempat', v: 'Ruang Rapat LSP UNIMED, Kampus FT UNIMED' },
         { k: 'peserta', l: 'Nama peserta (opsional)', t: 'textarea', r: 5, h: 'Format per baris: Nama | Jabatan/Unsur. Kosongkan untuk baris kosong', v: 'Ali Akbar Lubis | Asesor\nTuti Sriwedari | Asesor\nHanapi Hasan | Asesor' },
         { k: 'baris', l: 'Jumlah baris', t: 'number', v: '15', half: 1 },
@@ -178,7 +178,7 @@
       judul: (d) => 'Notulen ' + (d.rapat || ''),
       fields: [
         { k: 'rapat', l: 'Nama rapat', v: 'Rapat Persiapan Penyaksian BNSP' },
-        { k: 'tanggal', l: 'Hari/tanggal', t: 'date', v: '2026-10-14', half: 1 }, { k: 'waktu', l: 'Waktu', v: '09.00–11.30 WIB', half: 1 },
+        { k: 'tanggal', l: 'Hari/tanggal', t: 'date', half: 1 }, { k: 'waktu', l: 'Waktu', v: '09.00–11.30 WIB', half: 1 },
         { k: 'tempat', l: 'Tempat', v: 'Ruang Rapat LSP UNIMED, Kampus FT UNIMED' },
         { k: 'pimpinan', l: 'Pimpinan rapat', v: 'Ketua LSP UNIMED', half: 1 }, { k: 'notulis', l: 'Notulis', v: 'Sekretariat LSP', half: 1 },
         { k: 'peserta', l: 'Peserta', v: 'Sesuai daftar hadir terlampir' },
