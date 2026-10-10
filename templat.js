@@ -41,9 +41,11 @@
     nip: 'NIP. 19xxxxxxxxxxxxxxxx'
   };
   window.KOP = KOP;
+  // KOPaktif: baca window.KOP terbaru dari sheet (menu Templat), jatuh ke bawaan bila belum dimuat.
+  const KOPaktif = () => (window.KOP && window.KOP.nama) ? window.KOP : KOP;
   const img = (f) => new URL('assets/img/' + f, location.href).href;
-  const kop = () => `<div class="kop"><img class="kiri" src="${img('logo-lsp.png')}" alt=""><div><div class="l1">${esc(KOP.l1)}</div><div class="l2">${esc(KOP.l2)}</div><div class="l3">${esc(KOP.l3)}</div><div class="l4">${esc(KOP.l4)}</div><div class="l4">${esc(KOP.l5)}</div></div><img class="kanan" src="${img('logo-bnsp.png')}" alt=""></div>`;
-  const ttd = (d, o) => { const kepala = (o && o.tanpaTanggal) ? '' : (o && o.atas ? esc(o.atas) + '<br>' : `${esc(KOP.kota)}, ${tglPanjang(d.tanggal)}<br>`); return `<div class="ttd"><div>${kepala}${esc(d.ttdJabatan)},<div class="sp"></div><b class="u">${esc(d.ttdNama)}</b><br>${esc(d.ttdNip)}</div></div>`; };
+  const kop = () => `<div class="kop"><img class="kiri" src="${img('logo-lsp.png')}" alt=""><div><div class="l1">${esc(KOPaktif().l1)}</div><div class="l2">${esc(KOPaktif().l2)}</div><div class="l3">${esc(KOPaktif().l3)}</div><div class="l4">${esc(KOPaktif().l4)}</div><div class="l4">${esc(KOPaktif().l5)}</div></div><img class="kanan" src="${img('logo-bnsp.png')}" alt=""></div>`;
+  const ttd = (d, o) => { const kepala = (o && o.tanpaTanggal) ? '' : (o && o.atas ? esc(o.atas) + '<br>' : `${esc(KOPaktif().kota)}, ${tglPanjang(d.tanggal)}<br>`); return `<div class="ttd"><div>${kepala}${esc(d.ttdJabatan)},<div class="sp"></div><b class="u">${esc(d.ttdNama)}</b><br>${esc(d.ttdNip)}</div></div>`; };
   const ttd2 = (a, b) => `<div class="ttd2">${[a, b].map(p => `<div>${esc(p[0])},<div class="sp"></div><b class="u">${esc(p[1])}</b>${p[2] ? '<br>' + esc(p[2]) : ''}</div>`).join('')}</div>`;
   const meta = (pairs) => `<table class="meta">${pairs.map(p => `<tr><td>${esc(p[0])}</td><td>:</td><td>${p[2] ? p[1] : esc(p[1])}</td></tr>`).join('')}</table>`;
   const judulTengah = (j, no) => `<div class="judul"><b class="u">${esc(j)}</b>${no ? `<div>Nomor: ${esc(no)}</div>` : ''}</div>`;
@@ -74,7 +76,7 @@
       ],
       isi: (d, no) => {
         const kp = lines(d.kepada);
-        return `${kop()}<table class="meta head"><tr><td>Nomor</td><td>:</td><td>${esc(no)}</td><td class="r">${esc(KOP.kota)}, ${tglPanjang(d.tanggal)}</td></tr><tr><td>Lampiran</td><td>:</td><td colspan="2">${esc(d.lampiran || '-')}</td></tr><tr><td>Perihal</td><td>:</td><td colspan="2"><b>${esc(d.perihal)}</b></td></tr></table>
+        return `${kop()}<table class="meta head"><tr><td>Nomor</td><td>:</td><td>${esc(no)}</td><td class="r">${esc(KOPaktif().kota)}, ${tglPanjang(d.tanggal)}</td></tr><tr><td>Lampiran</td><td>:</td><td colspan="2">${esc(d.lampiran || '-')}</td></tr><tr><td>Perihal</td><td>:</td><td colspan="2"><b>${esc(d.perihal)}</b></td></tr></table>
           <div class="kpd">Yth. ${kp.length > 1 ? ol(kp) : esc(kp[0] || '')}<div>di tempat</div></div>
           <p>Dengan hormat,</p>${para(d.pembuka)}
           <div class="ind">${meta([['Hari/tanggal', hariTgl(d.tglAcara)], ['Waktu', d.waktu], ['Tempat', d.tempat], ['Acara', lines(d.acara).length > 1 ? ol(lines(d.acara)) : esc(d.acara), 1]])}</div>
@@ -97,7 +99,7 @@
       ],
       isi: (d, no) => {
         const ds = lines(d.dasar), pt = rows(d.petugas);
-        return `${kop()}<div class="r" style="margin-bottom:6pt">${esc(KOP.kota)}, ${tglPanjang(d.tanggal)}</div>${judulTengah('SURAT TUGAS', no)}
+        return `${kop()}<div class="r" style="margin-bottom:6pt">${esc(KOPaktif().kota)}, ${tglPanjang(d.tanggal)}</div>${judulTengah('SURAT TUGAS', no)}
           ${ds.length ? `<table class="meta"><tr><td>Dasar</td><td>:</td><td>${ds.length > 1 ? ol(ds) : esc(ds[0])}</td></tr></table>` : ''}
           <p>Ketua Lembaga Sertifikasi Profesi Universitas Negeri Medan menugaskan kepada:</p>
           <table class="tbl"><thead><tr><th style="width:8%">No.</th><th>Nama</th><th>NIP / No. Reg.</th><th>Tugas</th></tr></thead><tbody>${pt.map((r, i) => `<tr><td class="c">${i + 1}.</td><td>${esc(r[0])}</td><td>${esc(r[1] || '')}</td><td>${esc(r[2] || '')}</td></tr>`).join('')}</tbody></table>
@@ -120,7 +122,7 @@
       ],
       isi: (d, no) => {
         const T = String(d.tentang || '').toUpperCase(), lp = rows(d.lampiran);
-        const ttdSk = `<div class="ttd"><div>Ditetapkan di ${esc(KOP.kota)}<br>pada tanggal ${tglPanjang(d.tanggal)}<br>${esc(d.ttdJabatan)},<div class="sp"></div><b class="u">${esc(d.ttdNama)}</b><br>${esc(d.ttdNip)}</div></div>`;
+        const ttdSk = `<div class="ttd"><div>Ditetapkan di ${esc(KOPaktif().kota)}<br>pada tanggal ${tglPanjang(d.tanggal)}<br>${esc(d.ttdJabatan)},<div class="sp"></div><b class="u">${esc(d.ttdNama)}</b><br>${esc(d.ttdNip)}</div></div>`;
         return `${kop()}<div class="judul sk"><b>KEPUTUSAN KETUA LEMBAGA SERTIFIKASI PROFESI<br>UNIVERSITAS NEGERI MEDAN</b><div>NOMOR ${esc(no)}</div><div>TENTANG</div><b>${esc(T)}</b><div style="margin-top:10px">KETUA LEMBAGA SERTIFIKASI PROFESI UNIVERSITAS NEGERI MEDAN,</div></div>
           <table class="sk-t"><tr><td>Menimbang</td><td>:</td><td><ol class="abc">${lines(d.menimbang).map((x, i) => `<li><span>${ABJ[i]}.</span>${esc(x)}</li>`).join('')}</ol></td></tr>
           <tr><td>Mengingat</td><td>:</td><td>${ol(lines(d.mengingat))}</td></tr></table>
@@ -148,8 +150,8 @@
         <p class="j">Pada hari ini ${tglTerbilang(d.tanggal)} (${tglPanjang(d.tanggal)}), bertempat di ${esc(d.tempat)}, telah dilaksanakan ${esc(d.kegiatan)} dengan rincian sebagai berikut:</p>
         ${ol(lines(d.uraian))}
         <p class="j">Demikian berita acara ini dibuat dengan sebenarnya untuk dapat dipergunakan sebagaimana mestinya.</p>
-        <div class="c" style="margin-top:14px">${esc(KOP.kota)}, ${tglPanjang(d.tanggal)}</div>
-        ${ttd2([d.p1Jabatan, d.p1Nama, d.p1Nip], [d.p2Jabatan, d.p2Nama || KOP.nama, d.p2Nip || KOP.nip])}`
+        <div class="c" style="margin-top:14px">${esc(KOPaktif().kota)}, ${tglPanjang(d.tanggal)}</div>
+        ${ttd2([d.p1Jabatan, d.p1Nama, d.p1Nip], [d.p2Jabatan, d.p2Nama || KOPaktif().nama, d.p2Nip || KOPaktif().nip])}`
     },
     {
       id: 'hadir', nama: 'Daftar hadir', kode: 'DH', surat: false, kat: 'MNJ',
@@ -191,8 +193,8 @@
         <h4>B. Pokok pembahasan</h4>${ol(lines(d.bahas))}
         <h4>C. Keputusan dan tindak lanjut</h4>
         <table class="tbl"><thead><tr><th style="width:7%">No.</th><th>Keputusan</th><th style="width:24%">Penanggung jawab</th><th style="width:20%">Batas waktu</th></tr></thead><tbody>${rows(d.putus).map((r, i) => `<tr><td class="c">${i + 1}.</td><td>${esc(r[0])}</td><td>${esc(r[1] || '')}</td><td>${esc(r[2] || '')}</td></tr>`).join('')}</tbody></table>
-        <div class="c" style="margin-top:14px">${esc(KOP.kota)}, ${tglPanjang(d.tanggal)}</div>
-        ${ttd2(['Pimpinan rapat', d.pimNama || KOP.nama, ''], ['Notulis', d.notNama || '……………………', ''])}`
+        <div class="c" style="margin-top:14px">${esc(KOPaktif().kota)}, ${tglPanjang(d.tanggal)}</div>
+        ${ttd2(['Pimpinan rapat', d.pimNama || KOPaktif().nama, ''], ['Notulis', d.notNama || '……………………', ''])}`
     }
   ];
   window.TEMPLAT = TEMPLAT;
@@ -201,12 +203,17 @@
   const bawaan = (t, hariIni) => {
     const o = {};
     t.fields.forEach(f => { o[f.k] = f.v != null ? f.v : (f.t === 'date' ? hariIni : ''); });
-    if ('ttdNama' in o) { o.ttdJabatan = KOP.jabatan; o.ttdNama = KOP.nama; o.ttdNip = KOP.nip; }
+    if ('ttdNama' in o) { o.ttdJabatan = KOPaktif().jabatan; o.ttdNama = KOPaktif().nama; o.ttdNip = KOPaktif().nip; }
     return o;
   };
   window.susunDokumen = (id, data, nomor, hariIni) => {
     const t = TEMPLAT.find(x => x.id === id); if (!t) return '';
-    const d = Object.assign(bawaan(t, hariIni), data || {});
+    const aw = bawaan(t, hariIni), d = Object.assign({}, aw, data || {});
+    // Dokumen lama tanpa nama ketua: tempel nama terbaru dari sheet agar tak "konstanta".
+    if ('ttdNama' in d && (!data || !data.ttdNama || data.ttdNama === KOP.nama || data.ttdNama === 'Nama Ketua LSP')) {
+      const K = KOPaktif();
+      d.ttdJabatan = K.jabatan; d.ttdNama = K.nama; d.ttdNip = K.nip;
+    }
     return t.isi(d, nomor);
   };
 
@@ -221,7 +228,7 @@
           <td><b>Instruksi:</b><br>${['Tindak lanjuti', 'Pelajari dan beri saran', 'Siapkan jawaban', 'Hadiri / wakili', 'Untuk diketahui', 'Arsipkan'].map(x => `${(s.disp || []).some(y => y.instruksi === x) ? '■' : '□'} ${x}`).join('<br>')}</td></tr>
       <tr><td colspan="2" style="height:90px"><b>Catatan:</b><br>${(s.disp || []).map(x => esc(x.catatan) + (x.batas ? ` (batas ${tglPanjang(x.batas)})` : '')).join('<br>')}</td></tr>
     </tbody></table>
-    <div class="ttd"><div>${esc(KOP.kota)}, ${tglPanjang((s.disp && s.disp[0] && s.disp[0].tgl) || s.terima)}<br>${esc(KOP.jabatan)},<div class="sp"></div><b class="u">${esc(KOP.nama)}</b><br>${esc(KOP.nip)}</div></div>`;
+    <div class="ttd"><div>${esc(KOPaktif().kota)}, ${tglPanjang((s.disp && s.disp[0] && s.disp[0].tgl) || s.terima)}<br>${esc(KOPaktif().jabatan)},<div class="sp"></div><b class="u">${esc(KOPaktif().nama)}</b><br>${esc(KOPaktif().nip)}</div></div>`;
 
   /* ---------- Gaya kertas (pratinjau & cetak) ---------- */
   const DOC_CSS = `
@@ -278,7 +285,12 @@
   window.bukaTemplat = (id, API, ada) => {
     const t = TEMPLAT.find(x => x.id === id); if (!t) return;
     ada = ada || null;
-    const data = Object.assign(bawaan(t, API.hariIni), ada ? ada.data : {});
+    const wb = bawaan(t, API.hariIni), data = Object.assign({}, wb, ada ? ada.data : {});
+    // Draf lama tanpa nama ketua: tempel nama terbaru dari sheet.
+    if ('ttdNama' in data && (!ada || !ada.data || !ada.data.ttdNama || ada.data.ttdNama === KOP.nama || ada.data.ttdNama === 'Nama Ketua LSP')) {
+      const K = KOPaktif();
+      data.ttdJabatan = K.jabatan; data.ttdNama = K.nama; data.ttdNip = K.nip;
+    }
     let kat = ada ? ada.kat : t.kat;
     const kodeJenis = () => t.kode || 'DOK';
     const saran = () => (t.surat ? API.saranSurat(t.kode, data.tanggal || API.hariIni) : API.saranSurat(t.kode, data.tanggal || API.hariIni));
