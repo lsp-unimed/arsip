@@ -1,0 +1,827 @@
+<!doctype html>
+<html lang="id">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Arsip Dokumen — LSP UNIMED</title>
+  <meta name="robots" content="noindex">
+  <link rel="icon" type="image/png" sizes="32x32" href="assets/img/favicon-32.png">
+  <link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="arsip.css?v=2">
+</head>
+<body>
+<div class="demo-flag">Arsip Dokumen (arsip.lsp.unimed.ac.id) — tersambung ke server penyimpanan LSP.</div>
+<div id="app"></div>
+
+<script src="templat.js?v=2"></script>
+<script>
+(function () {
+  'use strict';
+  const HARI_INI = '2026-10-10';
+  const esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  const BLN = ['Jan', 'Feb', 'Mar', 'Apr', 'Mei', 'Jun', 'Jul', 'Agu', 'Sep', 'Okt', 'Nov', 'Des'];
+  const tgl = (s) => { if (!s) return '—'; const [y, m, d] = s.split('-').map(Number); return d + ' ' + BLN[m - 1] + ' ' + y; };
+  const hari = (s) => Math.round((new Date(s) - new Date(HARI_INI)) / 86400000);
+  const jam = () => HARI_INI + ' ' + new Date().toTimeString().slice(0, 5);
+  const romawi = (n) => ['I', 'II', 'III', 'IV', 'V', 'VI', 'VII', 'VIII', 'IX', 'X', 'XI', 'XII'][n - 1];
+  const pad = (n) => String(n).padStart(3, '0');
+  const PER = 10;
+  const API_URL = 'https://script.google.com/macros/s/AKfycby9YSQGGju1QDabN1FrdZrRyQLkDMa4ILFF6xqDechI0Al_ts_3vLYnUcLOjWLn0Rye/exec';
+  let SESI = null; // {token, username, nama, peran}
+
+  // Panggil backend (POST text/plain agar lolos CORS Apps Script).
+  async function api(aksi, isi) {
+    isi = isi || {};
+    if (SESI && SESI.token) isi.token = SESI.token;
+    let r;
+    try {
+      r = await fetch(API_URL, { method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' }, body: JSON.stringify(Object.assign({ aksi }, isi)) });
+    } catch (e) { throw new Error('Tidak bisa terhubung ke server. Periksa internet lalu coba lagi.'); }
+    let j;
+    try { j = JSON.parse(await r.text()); }
+    catch (e) { throw new Error('Server belum siap (izin atau deployment Apps Script belum benar).'); }
+    if (!j.ok) {
+      if (/Sesi berakhir|login kembali/i.test(j.pesan || '')) { keluarLokal(); login('Sesi berakhir. Silakan masuk kembali.'); }
+      throw new Error(j.pesan || 'Terjadi kesalahan.');
+    }
+    return j.data;
+  }
+  const simpanSesi = () => { try { (SESI && SESI.ingat ? localStorage : sessionStorage).setItem('arsip_sesi', JSON.stringify(SESI)); (SESI && SESI.ingat ? sessionStorage : localStorage).removeItem('arsip_sesi'); } catch (e) {} };
+  const muatSesi = () => { try { return JSON.parse(localStorage.getItem('arsip_sesi') || sessionStorage.getItem('arsip_sesi') || 'null'); } catch (e) { return null; } };
+  const keluarLokal = () => { SESI = null; try { localStorage.removeItem('arsip_sesi'); sessionStorage.removeItem('arsip_sesi'); } catch (e) {} };
+
+  /* ---------- Kategori & data contoh ---------- */
+  const KAT = [
+    ['LIS', 'Lisensi & legalitas', 'SK pendirian, SK pengurus, lisensi BNSP', 'Permanen'],
+    ['MUT', 'Dokumen mutu', 'Panduan mutu, SOP, instruksi kerja, formulir', 'Selama berlaku + 5 tahun'],
+    ['SKM', 'Skema & MUK', 'Dokumen skema dan materi uji kompetensi', 'Selama skema berlaku'],
+    ['ASR', 'Asesor', 'Sertifikat asesor, SK dan surat tugas, perjanjian kerahasiaan', 'Selama aktif + 5 tahun'],
+    ['TUK', 'Tempat uji', 'SK penetapan, verifikasi TUK, daftar peralatan', 'Selama aktif + 5 tahun'],
+    ['ASM', 'Rekaman asesmen', 'Daftar hadir, berita acara, rekaman MUK per jadwal', '5 tahun'],
+    ['MNJ', 'Rapat & manajemen', 'Undangan, daftar hadir, notulen, audit internal, kaji ulang', '5 tahun'],
+    ['KOR', 'Surat-menyurat', 'Arsip surat keluar dan surat masuk', '5 tahun']
+  ];
+  const katNama = (k) => (KAT.find(x => x[0] === k) || [k, k])[1];
+  const BAGIAN = ['Sekretariat', 'Administrasi', 'Bidang Sertifikasi', 'Manajemen Mutu', 'Bidang Skema'];
+
+  /* ---------- Pedoman kode jenis (dipakai nomor manual + tab Pedoman) ---------- */
+  // kode: [arti, contoh pakai, kategori yg cocok]
+  const JENIS = [
+    ['UND', 'Undangan', 'rapat, kegiatan, uji kompetensi', 'MNJ, KOR'],
+    ['ST', 'Surat tugas', 'penugasan asesor / panitia / petugas', 'ASR, KOR'],
+    ['SK', 'Keputusan', 'SK pengurus, SK asesor, SK TUK', 'LIS, ASR, TUK'],
+    ['PB', 'Pemberitahuan', 'penyampaian info resmi ke BNSP / unit', 'KOR'],
+    ['BA', 'Berita acara', 'verifikasi TUK, hasil asesmen', 'TUK, ASM'],
+    ['DH', 'Daftar hadir', 'rapat, uji kompetensi', 'MNJ, ASM'],
+    ['NOT', 'Notulen', 'hasil rapat, kaji ulang', 'MNJ'],
+    ['SOP', 'Prosedur mutu', 'SOP pelayanan, banding, keluhan', 'MUT'],
+    ['PM', 'Panduan mutu', 'panduan mutu LSP', 'MUT'],
+    ['IK', 'Instruksi kerja', 'petunjuk teknis pelaksanaan', 'MUT'],
+    ['FR', 'Formulir', 'FR.APL.01, FR.APL.02, dsb.', 'MUT, ASM'],
+    ['MUK', 'Materi uji', 'materi uji kompetensi per skema', 'SKM'],
+    ['SKM', 'Dokumen skema', 'skema okupasi / kualifikasi / klaster', 'SKM'],
+    ['SERT', 'Sertifikat', 'sertifikat asesor / lisensi', 'LIS, ASR'],
+    ['MOU', 'Kerja sama', 'MOU / PKS dengan mitra & TUK', 'LIS, KOR'],
+    ['LAP', 'Laporan', 'audit internal, kaji ulang, monev', 'MNJ, MUT'],
+    ['SM', 'Surat masuk', 'nomor agenda surat masuk (SM-###/tahun)', 'KOR']
+  ];
+  const jenisArti = (k) => ((JENIS.find(x => x[0] === k) || [])[1] || k);
+
+  // Data contoh dikosongkan — dashboard mulai dari 0.
+  const D = [];
+  const seq = { SURAT: 0, SM: 0 };
+  // Saran nomor manual: surat 075/... berikutnya; dokumen non-surat saran register, tetap bisa diketik ulang.
+  const saranSurat = (kode, t) => { t = t || HARI_INI; return `${pad(seq.SURAT + 1)}/LSP-UNIMED/${kode}/${romawi(+t.slice(5, 7))}/${t.slice(0, 4)}`; };
+  const nomorDipakai = (no) => DOCS.some(d => d.kode === no);
+  let DOCS = D.map((d, i) => {
+    const x = d[7] || {}, y = (d[3] || HARI_INI).slice(0, 4);
+    if (!x.kode) seq[d[0]] = (seq[d[0]] || 0) + 1;
+    return Object.assign({ id: i + 1, kode: x.kode || `LSP-UNIMED/${d[0]}/${pad(seq[d[0]])}/${y}`, kat: d[0], judul: d[1], pemilik: d[2], terbit: d[3], sampai: d[4], status: d[5], rev: d[6],
+      berkas: d[1].replace(/[^A-Za-z0-9]+/g, '_').slice(0, 40) + '.pdf', file_id: x.file_id || '', file_url: x.file_url || '', riwayat: [] }, x.surat ? { surat: true, alur: x.alur } : {}, x.tpl ? { tpl: x.tpl } : {});
+  });
+
+  // Surat masuk
+  let SM = [].map((r, i) => ({ id: i + 1, agenda: r[0], tglSurat: r[1], terima: r[2], asal: r[3], nomor: r[4], perihal: r[5], sifat: r[6], status: r[7], disp: r[8].map(x => ({ tgl: x[0], ke: x[1], instruksi: x[2], catatan: x[3], batas: x[4] })), berkas: 'Pindaian_' + r[0].replace(/\W+/g, '_') + '.pdf' }));
+
+  const status = (d) => {
+    if (d.status === 'Draf') return ['Draf', 'draft'];
+    if (d.sampai) { const h = hari(d.sampai); if (h < 0) return ['Kedaluwarsa', 'bad']; if (h <= 60) return ['Segera berakhir', 'warn']; }
+    return ['Berlaku', 'ok'];
+  };
+  const ALUR = ['Draf', 'Diajukan', 'Disahkan', 'Terkirim'];
+  const alurB = { Draf: 'draft', Diajukan: 'warn', Disahkan: 'ok', Terkirim: 'info' };
+  const smB = { Diterima: 'warn', Didisposisi: 'info', Selesai: 'ok' };
+  const LOG = [];
+  const catat = (m, siapa) => LOG.unshift([jam(), siapa || PERAN_AKTIF, m]);
+
+  /* ---------- Peran & hak akses (demo frontend; versi akhir disaring di backend) ----------
+     Ketua/Admin/Sekretariat: semua kategori. Bidang & Administrasi: ubah hanya
+     kategori miliknya, lihat kategori umum, kategori terbatas (ASR, ASM) disembunyikan. */
+  const PERAN_AGENDA = ['Ketua LSP', 'Admin', 'Sekretariat'];
+  let PERAN_AKTIF = 'Sekretariat LSP';
+  const peranBolehAgenda = () => PERAN_AGENDA.some(r => PERAN_AKTIF.toLowerCase().includes(r.toLowerCase().split(' ')[0]));
+  const KAT_TERBATAS = ['ASR', 'ASM'];
+  const HAK_UBAH = { 'Ketua': [], 'Admin': 'SEMUA', 'Sekretariat': 'SEMUA', 'Mutu': ['MUT', 'MNJ', 'ASR'], 'Sertifikasi': ['ASR', 'TUK', 'ASM'], 'Skema': ['SKM', 'MNJ'], 'Administrasi': ['KOR', 'ASM', 'MNJ'] };
+  const kunciPeran = () => { const p = PERAN_AKTIF.toLowerCase(); if (p.includes('ketua')) return 'Ketua'; if (p.includes('admin') && !p.includes('administrasi')) return 'Admin'; if (p.includes('sekretariat')) return 'Sekretariat'; if (p.includes('mutu')) return 'Mutu'; if (p.includes('sertifikasi')) return 'Sertifikasi'; if (p.includes('skema')) return 'Skema'; return 'Administrasi'; };
+  const bagianSaya = () => { const k = kunciPeran(); return k === 'Sekretariat' ? 'Sekretariat' : k === 'Administrasi' ? 'Administrasi' : k === 'Sertifikasi' ? 'Bidang Sertifikasi' : k === 'Mutu' ? 'Manajemen Mutu' : k === 'Skema' ? 'Bidang Skema' : ''; };
+  const bolehLihatKat = (kat) => { const k = kunciPeran(); if (['Ketua', 'Admin', 'Sekretariat'].includes(k)) return true; if (!KAT_TERBATAS.includes(kat)) return true; if (kat === 'ASR') return ['Mutu', 'Sertifikasi'].includes(k); return ['Sertifikasi', 'Administrasi'].includes(k); };
+  const bolehUbahKat = (kat) => { const k = kunciPeran(); if (k === 'Ketua') return true; const h = HAK_UBAH[k]; if (h === 'SEMUA') return true; if (Array.isArray(h)) return h.includes(kat); return false; };
+  const bolehSahkan = () => kunciPeran() === 'Ketua';
+  const bolehKelolaKop = () => ['Ketua', 'Admin', 'Sekretariat'].includes(kunciPeran());
+  const bolehCatatMasuk = () => ['Admin', 'Sekretariat', 'Ketua'].includes(kunciPeran());
+  // Kepemilikan: cocokkan kata terakhir penanggung jawab dgn bagian peran (mis. "Sertifikasi" = "Bidang Sertifikasi").
+  const milikSaya = (d) => { const b = bagianSaya(), p = d && d.pemilik; if (!b || !p) return false; const lw = (s) => String(s).toLowerCase().split(/[^a-z]+/).filter(Boolean).pop(); return lw(b) === lw(p); };
+  // Hapus & arsip: Admin/Sekretariat (+Ketua) semua kategori; peran lain hanya dokumen miliknya di kategori yg boleh diubah.
+  const bolehKelolaArsip = (d) => { const k = kunciPeran(); if (['Admin', 'Sekretariat', 'Ketua'].includes(k)) return bolehUbahKat(d.kat); return bolehUbahKat(d.kat) && milikSaya(d); };
+  const dispUntukSaya = () => { const b = bagianSaya(); return SM.filter(s => s.status !== 'Selesai' && s.disp.some(x => x.ke.includes(b))); };
+  const dispLewatBatas = () => SM.filter(s => s.status !== 'Selesai' && s.disp.some(x => x.batas && x.batas < HARI_INI));
+  let AGENDA = [];
+  let AGENDA_ID = 1;
+
+  /* ---------- Util tampilan ---------- */
+  const app = document.getElementById('app');
+  let VIEW = 'ringkasan', FK = '';
+  const FL = {}; // filter per tampilan: { q, st, dari, sampai, pg }
+  const fl = () => (FL[VIEW + FK] = FL[VIEW + FK] || { q: '', st: '', dari: '', sampai: '', pg: 1 });
+  const toast = (m) => { const t = document.createElement('div'); t.className = 'toast'; t.textContent = m; document.body.appendChild(t); setTimeout(() => t.remove(), 2800); };
+  const htmlDok = (d) => d.tpl ? window.susunDokumen(d.tpl.id, d.tpl.data, d.kode, HARI_INI) : '';
+  const drawer = (inner) => {
+    document.body.insertAdjacentHTML('beforeend', `<div class="drawer-back"><div class="drawer" role="dialog" aria-modal="true"><button class="x" aria-label="Tutup">×</button>${inner}</div></div>`);
+    const back = document.body.lastElementChild;
+    back.addEventListener('click', (e) => { if (e.target === back || e.target.closest('.x')) back.remove(); });
+    return back;
+  };
+  const tutupDrawer = () => document.querySelectorAll('.drawer-back').forEach(x => x.remove());
+  const dalamRentang = (s, f) => (!f.dari || (s && s >= f.dari)) && (!f.sampai || (s && s <= f.sampai));
+
+  // Toolbar standar: cari, status, rentang tanggal, ekspor
+  const toolbar = (f, opsiStatus, ph, extra) => `<div class="toolbar">
+      <input id="q" type="search" placeholder="${esc(ph)}" value="${esc(f.q)}">
+      <select id="fs"><option value="">Semua status</option>${opsiStatus.map(s => `<option ${f.st === s ? 'selected' : ''}>${s}</option>`).join('')}</select>
+      <label class="dt">Dari<input type="date" id="fd" value="${f.dari}"></label><label class="dt">Sampai<input type="date" id="fe" value="${f.sampai}"></label>
+      <button class="btn ghost" id="ex" type="button">Ekspor Excel</button>${extra || ''}</div>`;
+  const ikatToolbar = (f, draw) => {
+    const set = (k) => (e) => { f[k] = e.target.value; f.pg = 1; draw(); };
+    document.getElementById('q').oninput = set('q'); document.getElementById('fs').onchange = set('st');
+    document.getElementById('fd').onchange = set('dari'); document.getElementById('fe').onchange = set('sampai');
+  };
+  const pager = (total, f, draw) => {
+    const n = Math.max(1, Math.ceil(total / PER)); if (f.pg > n) f.pg = n;
+    const el = document.getElementById('pg');
+    el.innerHTML = total ? `<span>${(f.pg - 1) * PER + 1}–${Math.min(total, f.pg * PER)} dari ${total}</span><span class="pgb"><button type="button" data-p="-1" ${f.pg <= 1 ? 'disabled' : ''}>‹ Sebelumnya</button><b>${f.pg} / ${n}</b><button type="button" data-p="1" ${f.pg >= n ? 'disabled' : ''}>Berikutnya ›</button></span>` : '';
+    el.onclick = (e) => { const b = e.target.closest('[data-p]'); if (b) { f.pg += +b.dataset.p; draw(); } };
+  };
+  const halaman = (list, f) => list.slice((f.pg - 1) * PER, f.pg * PER);
+  // CSV yang aman dibuka di Excel: BOM UTF-8, pemisah titik koma, rumus dinetralkan
+  const unduhCSV = (nama, head, rows) => {
+    const sel = (v) => { let s = String(v == null ? '' : v); if (/^[=+\-@\t\r]/.test(s)) s = "'" + s; return '"' + s.replace(/"/g, '""') + '"'; };
+    const txt = '﻿' + [head, ...rows].map(r => r.map(sel).join(';')).join('\r\n');
+    const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([txt], { type: 'text/csv;charset=utf-8' })); a.download = nama + '-' + HARI_INI + '.csv';
+    document.body.appendChild(a); a.click(); setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 500);
+    toast('Ekspor ' + rows.length + ' baris — berkas dapat dibuka di Excel');
+  };
+
+  /* ---------- Login & kerangka ---------- */
+  let PESAN_LOGIN = '';
+  function login(pesan) {
+    if (pesan) PESAN_LOGIN = pesan;
+    // Coba pulihkan sesi tersimpan (seperti SIPINTAR: ingat saya 7 hari).
+    if (!SESI) {
+      const s = muatSesi();
+      if (s && s.token) { SESI = s; PERAN_AKTIF = s.peran; api('saya').then(() => { VIEW = 'ringkasan'; FK = ''; shell(); }).catch(() => { keluarLokal(); login(); }); return; }
+    }
+    app.innerHTML = `<div class="login"><div class="art"><div><h1>Arsip dokumen LSP UNIMED</h1><p>Ruang kerja petugas untuk membuat, mencatat, menyimpan, dan menemukan kembali seluruh dokumen lembaga — dari surat undangan sampai berita acara asesmen.</p>
+      <ul><li>Buat surat dan dokumen dari templat berkop, nomor surat ketik manual</li><li>Atau unggah berkas yang sudah jadi</li><li>Surat masuk dengan disposisi, surat keluar dengan alur pengesahan</li><li>Riwayat revisi, pengingat masa berlaku, dan agenda terdekat</li></ul></div><p style="font-size:.85rem">Akses khusus petugas LSP. Satu akun satu peran; akun dibuat oleh Admin.</p></div>
+      <form id="fL"><img src="assets/img/logo-lsp.png" alt="LSP UNIMED"><h2>Masuk petugas</h2>${PESAN_LOGIN ? `<p class="note" style="margin:0">${esc(PESAN_LOGIN)}</p>` : ''}<label class="f">Username<input name="u" required autocomplete="username" placeholder="mis. sekretariat"></label><label class="f">Password<input name="p" type="password" required autocomplete="current-password"></label><label style="display:flex;gap:8px;align-items:center;font-size:.88rem"><input type="checkbox" name="ingat" style="width:auto"> Ingat saya di perangkat ini (7 hari)</label><button class="btn" type="submit" id="bMasuk">Masuk</button><p class="muted" style="font-size:.84rem;margin:0" id="loginInfo">Menghubungkan ke server…</p><a href="https://lsp-unimed.github.io/laman-utama-demo/" style="font-size:.88rem">Kembali ke situs LSP</a></form></div>`;
+    PESAN_LOGIN = '';
+    const f = document.getElementById('fL');
+    api('ping').then(() => { document.getElementById('loginInfo').textContent = 'Server tersambung. Silakan masuk.'; }).catch((e) => { document.getElementById('loginInfo').textContent = e.message; });
+    f.onsubmit = async (e) => {
+      e.preventDefault();
+      const btn = document.getElementById('bMasuk'), info = document.getElementById('loginInfo');
+      btn.disabled = true; btn.textContent = 'Memeriksa…'; info.textContent = '';
+      try {
+        const d = await api('login', { data: { username: f.u.value.trim(), password: f.p.value, ingat: f.ingat.checked } });
+        SESI = Object.assign({}, d.user, { token: d.token, ingat: f.ingat.checked }); simpanSesi();
+        PERAN_AKTIF = d.user.peran; VIEW = 'ringkasan'; FK = ''; shell();
+      } catch (err) { info.textContent = err.message; btn.disabled = false; btn.textContent = 'Masuk'; }
+    };
+  }
+
+  function shell() {
+    const katLihat = KAT.filter(k => bolehLihatKat(k[0]));
+    const n = (k) => DOCS.filter(d => d.kat === k && !d.arsip).length;
+    const reminders = DOCS.filter(d => !d.arsip && bolehLihatKat(d.kat) && ['warn', 'bad'].includes(status(d)[1])).length;
+    const smBuka = SM.filter(s => s.status !== 'Selesai').length, skTunggu = DOCS.filter(d => d.surat && d.alur === 'Diajukan').length;
+    const tugasSaya = dispUntukSaya().length + (bolehSahkan() ? skTunggu : 0);
+    app.innerHTML = `<div class="shell"><aside class="side" id="side">
+      <div class="brand"><img src="assets/img/logo-lsp.png" alt=""><div><b>Arsip Dokumen</b><span>LSP UNIMED</span></div></div>
+      <button data-v="ringkasan">Ringkasan${tugasSaya ? ` <span class="n hot">${tugasSaya}</span>` : ''}</button>
+      <button data-v="dokumen" data-k="">Semua dokumen <span class="n">${DOCS.filter(d => bolehLihatKat(d.kat) && !d.arsip).length}</span></button>
+      <button data-v="arsip">Dokumen arsip <span class="n">${DOCS.filter(d => bolehLihatKat(d.kat) && d.arsip).length}</span></button>
+      <button data-v="pengingat">Pengingat <span class="n">${reminders}</span></button>
+      ${peranBolehAgenda() ? '<button data-v="agenda">Agenda terdekat</button>' : ''}
+      <div class="grp">Persuratan</div>
+      <button data-v="masuk">Surat masuk <span class="n${smBuka ? ' hot' : ''}">${smBuka}</span></button>
+      <button data-v="keluar">Surat keluar <span class="n${skTunggu ? ' hot' : ''}">${skTunggu}</span></button>
+      <button data-v="templat">Templat dokumen</button>
+      <button data-v="pedoman">Pedoman penomoran</button>
+      <div class="grp">Kategori</div>
+      ${katLihat.map(k => `<button data-v="dokumen" data-k="${k[0]}">${esc(k[1])} <span class="n">${n(k[0])}</span></button>`).join('')}
+      <div class="grp">Lainnya</div>
+      <button data-v="aktivitas">Riwayat aktivitas</button>
+      <button data-v="pengguna">Pengguna & hak akses</button>
+      <div class="foot">Masuk sebagai <b style="color:#fff">${esc((SESI && SESI.nama) || PERAN_AKTIF)}</b> <span class="muted">@${esc((SESI && SESI.username) || '')} · ${esc(PERAN_AKTIF)}</span><br><a href="#" id="out">Keluar</a> · <a href="https://lsp-unimed.github.io/laman-utama-demo/">Situs LSP</a><br><a href="#" id="ganti" style="font-size:.82rem">Ganti password</a></div>
+    </aside><div class="main"><div class="top"><div style="display:flex;gap:10px;align-items:center;min-width:0"><button class="menu" id="menu" aria-label="Menu">☰</button><h1 id="title" style="margin:0"></h1></div><button class="btn" id="add">+ Dokumen baru</button></div><div id="view"></div></div></div>`;
+    document.getElementById('side').addEventListener('click', (e) => {
+      const b = e.target.closest('button[data-v]'); if (!b) return;
+      VIEW = b.dataset.v; FK = b.dataset.k || ''; document.body.classList.remove('nav-open'); render(); window.scrollTo(0, 0);
+    });
+    document.getElementById('menu').onclick = () => document.body.classList.toggle('nav-open');
+    document.getElementById('out').onclick = async (e) => { e.preventDefault(); try { await api('logout'); } catch (err) {} keluarLokal(); PERAN_AKTIF = ''; login(); };
+    document.getElementById('ganti').onclick = (e) => { e.preventDefault(); pergi('pengguna'); };
+    document.getElementById('add').onclick = () => pilih();
+    render();
+  }
+  const pergi = (v, k) => { VIEW = v; FK = k || ''; shell(); };
+
+  function render() {
+    if (VIEW === 'agenda' && !peranBolehAgenda()) VIEW = 'ringkasan';
+    if (VIEW === 'dokumen' && FK && !bolehLihatKat(FK)) FK = '';
+    document.querySelectorAll('.side button[data-v]').forEach(b => b.classList.toggle('on', b.dataset.v === VIEW && (VIEW !== 'dokumen' || (b.dataset.k || '') === FK)));
+    const v = document.getElementById('view'), T = document.getElementById('title');
+    const go = (root) => root.querySelectorAll('[data-go]').forEach(a => a.onclick = (e) => { e.preventDefault(); VIEW = a.dataset.go; FK = a.dataset.k || ''; render(); });
+    ({ ringkasan: vRingkasan, dokumen: vDokumen, arsip: vArsip, pengingat: vPengingat, agenda: vAgenda, masuk: vMasuk, keluar: vKeluar, templat: vTemplat, pedoman: vPedoman, aktivitas: vAktivitas, pengguna: vPengguna }[VIEW] || vRingkasan)(v, T);
+    go(v);
+  }
+
+  function vRingkasan(v, T) {
+    T.textContent = 'Ringkasan — ' + PERAN_AKTIF;
+    const lihat = (d) => !d.arsip && bolehLihatKat(d.kat);
+    const warn = DOCS.filter(d => lihat(d) && status(d)[1] === 'warn'), bad = DOCS.filter(d => lihat(d) && status(d)[1] === 'bad'), draf = DOCS.filter(d => lihat(d) && d.status === 'Draf');
+    const agAktif = AGENDA.slice().sort((a, b) => (a.tanggal || '9999').localeCompare(b.tanggal || '9999'))[0];
+    const agSiap = agAktif ? agAktif.butir.filter(b => b[1] === 'ok').length : 0;
+    const saya = dispUntukSaya(), lewat = dispLewatBatas().filter(s => saya.includes(s));
+    const smBuka = (['Ketua', 'Admin', 'Sekretariat'].includes(kunciPeran()) ? SM.filter(s => s.status !== 'Selesai') : saya);
+    const tunggu = DOCS.filter(d => lihat(d) && d.surat && ['Draf', 'Diajukan'].includes(d.alur));
+    const skTunggu = DOCS.filter(d => d.surat && d.alur === 'Diajukan').length;
+    const tugasSaya = saya.length + (bolehSahkan() ? skTunggu : 0);
+    v.innerHTML = `<p class="muted lead">Halo, <b>${esc(PERAN_AKTIF)}</b>. ${tugasSaya ? `Ada <b>${tugasSaya} tugas</b> menunggu Anda.` : 'Tidak ada tugas menunggu Anda.'}${['Ketua', 'Admin', 'Sekretariat'].includes(kunciPeran()) ? '' : ' Anda hanya dapat mengubah dokumen kategori Anda; dokumen lain tampil baca-saja.'}</p>
+      ${saya.length || lewat.length || bolehSahkan() && skTunggu ? `<div class="panel" style="border-left:4px solid var(--red);margin-bottom:14px"><h2>Tugas saya</h2><ul class="list">${saya.map(s => `<li data-sm="${s.id}" style="cursor:pointer"><span><b>${esc(s.perihal)}</b><br><span class="muted" style="font-size:.82rem">Disposisi · ${esc(s.agenda)}${s.disp.some(x => x.batas && x.batas < HARI_INI) ? ' · <b style="color:var(--red)">lewat batas</b>' : ''}</span></span><span class="badge ${smB[s.status]}">${s.status}</span></li>`).join('')}${bolehSahkan() && skTunggu ? `<li><span><b>${skTunggu} surat menunggu pengesahan Ketua</b><br><span class="muted" style="font-size:.82rem">Buka Surat keluar → status Diajukan</span></span><span class="badge warn">Diajukan</span></li>` : ''}</ul></div>` : ''}
+      <div class="grid g4" style="margin-bottom:14px">
+        <div class="panel stat"><b>${DOCS.filter(lihat).length}</b><span>dokumen dapat Anda lihat</span></div>
+        <div class="panel stat warn"><b>${warn.length}</b><span>segera berakhir (60 hari)</span></div>
+        <div class="panel stat bad"><b>${bad.length}</b><span>sudah kedaluwarsa</span></div>
+        <div class="panel stat"><b>${draf.length}</b><span>draf menunggu pengesahan</span></div></div>
+      <div class="grid g2" style="margin-bottom:14px">
+        <div class="panel"><h2>Surat masuk perlu tindak lanjut</h2><ul class="list">${smBuka.map(s => `<li data-sm="${s.id}" style="cursor:pointer"><span><b>${esc(s.perihal)}</b><br><span class="muted" style="font-size:.82rem">${esc(s.asal)} · ${esc(s.agenda)}</span></span><span class="badge ${smB[s.status]}">${s.status}</span></li>`).join('') || '<li class="muted">Semua surat masuk sudah selesai.</li>'}</ul><p style="margin:10px 0 0"><a href="#" data-go="masuk">Buka surat masuk</a></p></div>
+        <div class="panel"><h2>Surat keluar dalam proses</h2><ul class="list">${tunggu.map(d => `<li data-id="${d.id}" style="cursor:pointer"><span><b>${esc(d.judul)}</b><br><span class="muted code" style="font-size:.8rem">${esc(d.kode)}</span></span><span class="badge ${alurB[d.alur]}">${d.alur}</span></li>`).join('') || '<li class="muted">Tidak ada.</li>'}</ul><p style="margin:10px 0 0"><a href="#" data-go="keluar">Buka surat keluar</a></p></div>
+      </div>
+      <div class="grid g2">
+        ${peranBolehAgenda() ? `<div class="panel"><h2>Agenda terdekat${agAktif ? ': ' + esc(agAktif.nama) : ''}</h2>${agAktif ? `<div class="bar"><i style="width:${agAktif.butir.length ? Math.round(agSiap / agAktif.butir.length * 100) : 0}%"></i></div><p class="muted" style="font-size:.88rem">${agSiap} dari ${agAktif.butir.length} butir siap${agAktif.tanggal ? ' · ' + tgl(agAktif.tanggal) : ''}.</p>
+          ${agAktif.butir.filter(b => b[1] !== 'ok').slice(0, 4).map(b => `<div class="check"><span class="dot ${b[1]}"></span><div><b>${esc(b[0])}</b><div class="muted" style="font-size:.84rem">${esc(b[2] || '')}</div></div><span></span></div>`).join('')}` : '<p class="muted">Belum ada agenda.</p>'}
+          <p style="margin:10px 0 0"><a href="#" data-go="agenda">Lihat semua agenda</a></p></div>` : ''}
+        <div class="panel"><h2>Aktivitas terbaru</h2><ul class="list">${LOG.slice(0, 6).map(l => `<li><span>${esc(l[2])}<br><span class="muted" style="font-size:.82rem">${esc(l[1])}</span></span><span class="muted" style="font-size:.82rem;white-space:nowrap">${esc(l[0].slice(5, 10).split('-').reverse().join('/'))}</span></li>`).join('')}</ul></div>
+      </div>
+      <div class="panel" style="margin-top:14px"><h2>Per kategori</h2><div class="grid g4">${KAT.filter(k => bolehLihatKat(k[0])).map(k => `<a href="#" data-go="dokumen" data-k="${k[0]}" class="katbox"><b style="font-size:1.4rem">${DOCS.filter(d => !d.arsip && d.kat === k[0]).length}</b><div style="font-weight:700">${esc(k[1])}</div><div class="muted" style="font-size:.8rem">${esc(k[2])}</div></a>`).join('')}</div></div>`;
+    v.querySelectorAll('[data-sm]').forEach(li => li.onclick = () => detailMasuk(+li.dataset.sm));
+    v.querySelectorAll('li[data-id]').forEach(li => li.onclick = () => detail(+li.dataset.id));
+  }
+
+  function vDokumen(v, T) {
+    T.textContent = FK ? katNama(FK) : 'Semua dokumen';
+    const k = KAT.find(x => x[0] === FK), f = fl();
+    const ubah = !FK || bolehUbahKat(FK);
+    v.innerHTML = `${k ? `<p class="muted lead">${esc(k[2])} · Masa simpan: ${esc(k[3])}</p>` : ''}${!ubah && FK ? '<p class="note">Kategori ini baca-saja untuk peran Anda. Perubahan hanya oleh penanggung jawab kategori.</p>' : ''}
+      ${toolbar(f, ['Berlaku', 'Segera berakhir', 'Kedaluwarsa', 'Draf'], 'Cari judul atau nomor dokumen')}
+      <div class="table-wrap"><table><thead><tr><th>Nomor</th><th>Judul</th>${FK ? '' : '<th>Kategori</th>'}<th>Terbit</th><th>Rev.</th><th>Berlaku sampai</th><th>Status</th></tr></thead><tbody id="tb"></tbody></table></div><div class="pager" id="pg"></div>`;
+    const daftar = () => DOCS.filter(d => !d.arsip && bolehLihatKat(d.kat) && (!FK || d.kat === FK) && (!f.st || status(d)[0] === f.st) && dalamRentang(d.terbit, f) && (!f.q || (d.judul + ' ' + d.kode).toLowerCase().includes(f.q.toLowerCase())))
+      .sort((a, b) => (b.terbit || '9999').localeCompare(a.terbit || '9999'));
+    const draw = () => {
+      const list = daftar();
+      document.getElementById('tb').innerHTML = halaman(list, f).map(d => { const s = status(d); return `<tr data-id="${d.id}"><td class="code" data-l="Nomor">${esc(d.kode)}</td><td data-l="Judul">${esc(d.judul)}<div class="muted" style="font-size:.8rem">${esc(d.pemilik)}${d.tpl ? ' · <span class="chip">dari templat</span>' : ''}${d.surat ? ' · <span class="chip">surat keluar</span>' : ''}</div></td>${FK ? '' : `<td data-l="Kategori">${esc(katNama(d.kat))}</td>`}<td data-l="Terbit">${tgl(d.terbit)}</td><td data-l="Revisi">${d.rev}</td><td data-l="Berlaku sampai">${d.sampai ? tgl(d.sampai) : 'Tidak terbatas'}</td><td data-l="Status"><span class="badge ${s[1]}">${s[0]}</span></td></tr>`; }).join('') || `<tr><td colspan="7" class="muted kosong">Tidak ada dokumen yang cocok dengan filter.</td></tr>`;
+      pager(list.length, f, draw);
+    };
+    ikatToolbar(f, draw);
+    document.getElementById('ex').onclick = () => unduhCSV('arsip-dokumen' + (FK ? '-' + FK : ''), ['Nomor', 'Judul', 'Kategori', 'Penanggung jawab', 'Terbit', 'Berlaku sampai', 'Revisi', 'Status'], daftar().map(d => [d.kode, d.judul, katNama(d.kat), d.pemilik, d.terbit, d.sampai, d.rev, status(d)[0]]));
+    document.getElementById('tb').onclick = (e) => { const tr = e.target.closest('tr[data-id]'); if (tr) detail(+tr.dataset.id); };
+    draw();
+  }
+
+  /* ---------- Dokumen arsip: yg sudah diarsipkan, filter per kategori ---------- */
+  function vArsip(v, T) {
+    T.textContent = 'Dokumen arsip';
+    const f = fl(); f.kat = f.kat || '';
+    const opsiKat = KAT.filter(k => bolehLihatKat(k[0]));
+    v.innerHTML = `<p class="muted lead">Dokumen final yang sudah diarsipkan. Saring berdasarkan kategori, atau cari judul/nomor.</p>
+      <div class="toolbar">
+      <input id="q" type="search" placeholder="Cari judul atau nomor dokumen" value="${esc(f.q)}">
+      <select id="fkat"><option value="">Semua kategori</option>${opsiKat.map(k => `<option value="${k[0]}"${f.kat === k[0] ? ' selected' : ''}>${esc(k[1])}</option>`).join('')}</select>
+      <label class="dt">Dari<input type="date" id="fd" value="${f.dari}"></label><label class="dt">Sampai<input type="date" id="fe" value="${f.sampai}"></label>
+      <button class="btn ghost" id="ex" type="button">Ekspor Excel</button></div>
+      <div class="table-wrap"><table><thead><tr><th>Nomor</th><th>Judul</th><th>Kategori</th><th>Terbit</th><th>Rev.</th><th>Berlaku sampai</th><th>Status</th></tr></thead><tbody id="tb"></tbody></table></div><div class="pager" id="pg"></div>`;
+    const daftar = () => DOCS.filter(d => d.arsip && bolehLihatKat(d.kat) && (!f.kat || d.kat === f.kat) && dalamRentang(d.terbit, f) && (!f.q || (d.judul + ' ' + d.kode).toLowerCase().includes(f.q.toLowerCase())))
+      .sort((a, b) => (b.terbit || '9999').localeCompare(a.terbit || '9999'));
+    const draw = () => {
+      const list = daftar();
+      document.getElementById('tb').innerHTML = halaman(list, f).map(d => { const s = status(d); return `<tr data-id="${d.id}"><td class="code" data-l="Nomor">${esc(d.kode)}</td><td data-l="Judul">${esc(d.judul)}<div class="muted" style="font-size:.8rem">${esc(d.pemilik)}${d.tpl ? ' · <span class="chip">dari templat</span>' : ''}${d.surat ? ' · <span class="chip">surat keluar</span>' : ''}</div></td><td data-l="Kategori">${esc(katNama(d.kat))}</td><td data-l="Terbit">${tgl(d.terbit)}</td><td data-l="Revisi">${d.rev}</td><td data-l="Berlaku sampai">${d.sampai ? tgl(d.sampai) : 'Tidak terbatas'}</td><td data-l="Status"><span class="badge ${s[1]}">${s[0]}</span></td></tr>`; }).join('') || `<tr><td colspan="7" class="muted kosong">Belum ada dokumen arsip yang cocok.</td></tr>`;
+      pager(list.length, f, draw);
+    };
+    document.getElementById('q').oninput = (e) => { f.q = e.target.value; f.pg = 1; draw(); };
+    document.getElementById('fkat').onchange = (e) => { f.kat = e.target.value; f.pg = 1; draw(); };
+    document.getElementById('fd').onchange = (e) => { f.dari = e.target.value; f.pg = 1; draw(); };
+    document.getElementById('fe').onchange = (e) => { f.sampai = e.target.value; f.pg = 1; draw(); };
+    document.getElementById('ex').onclick = () => unduhCSV('dokumen-arsip', ['Nomor', 'Judul', 'Kategori', 'Penanggung jawab', 'Terbit', 'Berlaku sampai', 'Revisi', 'Status'], daftar().map(d => [d.kode, d.judul, katNama(d.kat), d.pemilik, d.terbit, d.sampai, d.rev, status(d)[0]]));
+    document.getElementById('tb').onclick = (e) => { const tr = e.target.closest('tr[data-id]'); if (tr) detail(+tr.dataset.id); };
+    draw();
+  }
+
+  function vPengingat(v, T) {
+    T.textContent = 'Pengingat';
+    const list = DOCS.filter(d => bolehLihatKat(d.kat) && (['warn', 'bad'].includes(status(d)[1]) || d.status === 'Draf')).sort((a, b) => (a.sampai || '9999').localeCompare(b.sampai || '9999'));
+    v.innerHTML = `<p class="muted lead">Dokumen yang kedaluwarsa, berakhir dalam 60 hari, atau masih draf. Pengingat juga dikirim ke email penanggung jawab setiap Senin.</p>
+      <div class="panel"><ul class="list">${list.map(d => { const s = status(d); const h = d.sampai ? hari(d.sampai) : null; return `<li data-id="${d.id}" style="cursor:pointer"><span><b>${esc(d.judul)}</b><br><span class="muted" style="font-size:.84rem">${esc(d.kode)} · ${esc(d.pemilik)}</span></span><span style="text-align:right"><span class="badge ${s[1]}">${s[0]}</span><br><span class="muted" style="font-size:.8rem">${h === null ? 'Perlu pengesahan' : h < 0 ? 'Lewat ' + (-h) + ' hari' : h + ' hari lagi'}</span></span></li>`; }).join('')}</ul></div>`;
+    v.querySelectorAll('li[data-id]').forEach(li => li.onclick = () => detail(+li.dataset.id));
+  }
+
+  function vAgenda(v, T) {
+    T.textContent = 'Agenda terdekat';
+    if (!peranBolehAgenda()) { v.innerHTML = `<div class="panel"><h2>Akses terbatas</h2><p class="muted">Tab Agenda terdekat hanya untuk Admin, Sekretariat, dan Ketua LSP.</p></div>`; return; }
+    const daftar = AGENDA.slice().sort((a, b) => (a.tanggal || '9999').localeCompare(b.tanggal || '9999'));
+    v.innerHTML = `<p class="muted lead">Rekap persiapan dokumen untuk setiap kegiatan. Pilih agenda untuk melihat butir dokumennya, atau tambah agenda baru.</p>
+      <div class="toolbar"><button class="btn" id="addAg" type="button">+ Tambah agenda</button></div>
+      ${daftar.map(a => { const ok = a.butir.filter(b => b[1] === 'ok').length; return `<div class="panel" style="margin-bottom:12px"><div style="display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap;align-items:start"><div><h2 style="margin-bottom:2px">${esc(a.nama)}</h2><div class="muted" style="font-size:.86rem">${tgl(a.tanggal)}${a.tempat ? ' · ' + esc(a.tempat) : ''}</div>${a.catatan ? `<div class="muted" style="font-size:.86rem">${esc(a.catatan)}</div>` : ''}</div><span class="badge ${ok === a.butir.length ? 'ok' : 'warn'}">${ok}/${a.butir.length} siap</span></div>
+        <div class="bar"><i style="width:${a.butir.length ? Math.round(ok / a.butir.length * 100) : 0}%"></i></div>
+        ${a.butir.map((b, bi) => `<div class="check"><span class="dot ${b[1]}"></span><div><b>${esc(b[0])}</b><div class="muted" style="font-size:.84rem">${esc(b[2] || '')}</div></div><span style="display:flex;gap:6px;align-items:center;flex-wrap:wrap"><span class="badge ${b[1]}">${b[1] === 'ok' ? 'Siap' : b[1] === 'warn' ? 'Perlu dilengkapi' : 'Mendesak'}</span><button class="btn ghost" data-ubah="${a.id}:${bi}" type="button" style="padding:4px 10px;font-size:.78rem">Ubah</button><button class="btn ghost" data-buang="${a.id}:${bi}" type="button" style="padding:4px 10px;font-size:.78rem">Hapus</button></span></div>`).join('') || '<p class="muted" style="font-size:.86rem">Belum ada butir.</p>'}
+        <div class="acts"><button class="btn ghost" data-tambah="${a.id}" type="button">+ Tambah butir</button><button class="btn ghost" data-hapus="${a.id}" type="button">Hapus agenda</button></div></div>`; }).join('') || '<div class="panel muted">Belum ada agenda.</div>'}`;
+    document.getElementById('addAg').onclick = () => {
+      const back = drawer(`<h2>Tambah agenda</h2><form class="form" id="fAg"><label class="f">Nama agenda<input name="nama" required placeholder="mis. Surveilans BNSP 2027"></label><div class="row2"><label class="f">Tanggal<input type="date" name="tanggal" required></label><label class="f">Tempat<input name="tempat"></label></div><label class="f">Catatan<textarea name="catatan" rows="2"></textarea></label><div><button class="btn" type="submit">Simpan agenda</button></div></form>`);
+      back.querySelector('#fAg').onsubmit = (e) => { e.preventDefault(); const g = new FormData(e.target); AGENDA.push({ id: AGENDA_ID++, nama: (g.get('nama') || '').trim(), tanggal: g.get('tanggal'), tempat: (g.get('tempat') || '').trim(), catatan: (g.get('catatan') || '').trim(), butir: [] }); catat('Menambah agenda ' + g.get('nama')); tutupDrawer(); toast('Agenda tersimpan'); render(); };
+    };
+    v.querySelectorAll('[data-tambah]').forEach(b => b.onclick = () => {
+      const a = AGENDA.find(x => x.id === +b.dataset.tambah);
+      const back = drawer(`<h2>Tambah butir — ${esc(a.nama)}</h2><form class="form" id="fB"><label class="f">Butir dokumen<input name="nama" required placeholder="mis. SK penugasan panitia"></label><label class="f">Status<select name="st"><option value="warn">Perlu dilengkapi</option><option value="ok">Siap</option><option value="bad">Mendesak</option></select></label><label class="f">Keterangan<input name="ket"></label><div><button class="btn" type="submit">Simpan butir</button></div></form>`);
+      back.querySelector('#fB').onsubmit = (e) => { e.preventDefault(); const g = new FormData(e.target); a.butir.push([(g.get('nama') || '').trim(), g.get('st'), (g.get('ket') || '').trim()]); catat('Menambah butir agenda ' + a.nama); tutupDrawer(); toast('Butir tersimpan'); render(); };
+    });
+    v.querySelectorAll('[data-hapus]').forEach(b => b.onclick = () => { const a = AGENDA.find(x => x.id === +b.dataset.hapus); if (!confirm('Hapus agenda "' + a.nama + '"?')) return; AGENDA = AGENDA.filter(x => x.id !== a.id); catat('Menghapus agenda ' + a.nama); render(); });
+    v.querySelectorAll('[data-ubah]').forEach(b => b.onclick = () => {
+      const [aid, bi] = b.dataset.ubah.split(':').map(Number); const a = AGENDA.find(x => x.id === aid); const it = a.butir[bi];
+      const back = drawer(`<h2>Ubah butir — ${esc(a.nama)}</h2><form class="form" id="fU"><label class="f">Butir dokumen<input name="nama" required value="${esc(it[0])}"></label><label class="f">Status<select name="st"><option value="ok"${it[1] === 'ok' ? ' selected' : ''}>Siap</option><option value="warn"${it[1] === 'warn' ? ' selected' : ''}>Perlu dilengkapi</option><option value="bad"${it[1] === 'bad' ? ' selected' : ''}>Mendesak</option></select></label><label class="f">Keterangan<input name="ket" value="${esc(it[2] || '')}"></label><div><button class="btn" type="submit">Simpan perubahan</button></div></form>`);
+      back.querySelector('#fU').onsubmit = (e) => { e.preventDefault(); const g = new FormData(e.target); a.butir[bi] = [(g.get('nama') || '').trim(), g.get('st'), (g.get('ket') || '').trim()]; catat('Mengubah butir agenda ' + a.nama + ': ' + g.get('nama')); tutupDrawer(); toast('Butir diperbarui'); render(); };
+    });
+    v.querySelectorAll('[data-buang]').forEach(b => b.onclick = () => { const [aid, bi] = b.dataset.buang.split(':').map(Number); const a = AGENDA.find(x => x.id === aid); const it = a.butir[bi]; if (!confirm('Hapus butir "' + it[0] + '"?')) return; a.butir.splice(bi, 1); catat('Menghapus butir agenda ' + a.nama + ': ' + it[0]); render(); });
+  }
+
+  /* ---------- Surat masuk ---------- */
+  function vMasuk(v, T) {
+    T.textContent = 'Surat masuk';
+    const f = fl();
+    const tambah = bolehCatatMasuk() ? '<button class="btn" id="addSM" type="button">+ Catat surat masuk</button>' : '';
+    v.innerHTML = `<p class="muted lead">Setiap surat masuk diberi nomor agenda, dipindai, lalu didisposisikan ke bagian terkait. Alur: Diterima → Didisposisi → Selesai.${bolehCatatMasuk() ? '' : ' Peran Anda baca-saja kecuali menandai tugas disposisi Anda selesai.'}</p>
+      ${toolbar(f, ['Diterima', 'Didisposisi', 'Selesai'], 'Cari perihal, pengirim, atau nomor', tambah)}
+      <div class="table-wrap"><table><thead><tr><th>No. agenda</th><th>Diterima</th><th>Pengirim & nomor surat</th><th>Perihal</th><th>Sifat</th><th>Status</th></tr></thead><tbody id="tb"></tbody></table></div><div class="pager" id="pg"></div>`;
+    const daftar = () => SM.filter(s => (!f.st || s.status === f.st) && dalamRentang(s.terima, f) && (!f.q || (s.perihal + ' ' + s.asal + ' ' + s.nomor + ' ' + s.agenda).toLowerCase().includes(f.q.toLowerCase()))).sort((a, b) => b.agenda.localeCompare(a.agenda));
+    const draw = () => {
+      const list = daftar();
+      document.getElementById('tb').innerHTML = halaman(list, f).map(s => `<tr data-sm="${s.id}"><td class="code" data-l="No. agenda">${esc(s.agenda)}</td><td data-l="Diterima">${tgl(s.terima)}</td><td data-l="Pengirim">${esc(s.asal)}<div class="muted" style="font-size:.8rem">${esc(s.nomor)}</div></td><td data-l="Perihal">${esc(s.perihal)}</td><td data-l="Sifat">${s.sifat === 'Biasa' ? 'Biasa' : `<b class="sifat">${esc(s.sifat)}</b>`}</td><td data-l="Status"><span class="badge ${smB[s.status]}">${s.status}</span></td></tr>`).join('') || `<tr><td colspan="6" class="muted kosong">Tidak ada surat yang cocok dengan filter.</td></tr>`;
+      pager(list.length, f, draw);
+    };
+    ikatToolbar(f, draw);
+    document.getElementById('ex').onclick = () => unduhCSV('surat-masuk', ['No. agenda', 'Tanggal surat', 'Tanggal diterima', 'Pengirim', 'Nomor surat', 'Perihal', 'Sifat', 'Status', 'Disposisi ke'], daftar().map(s => [s.agenda, s.tglSurat, s.terima, s.asal, s.nomor, s.perihal, s.sifat, s.status, s.disp.map(x => x.ke.join(', ')).join(' | ')]));
+    const btnSM = document.getElementById('addSM');
+    if (btnSM) btnSM.onclick = () => { if (!bolehCatatMasuk()) { toast('Hanya Admin, Sekretariat, atau Ketua yang dapat mencatat surat masuk'); return; } formMasuk(); };
+    document.getElementById('tb').onclick = (e) => { const tr = e.target.closest('tr[data-sm]'); if (tr) detailMasuk(+tr.dataset.sm); };
+    draw();
+  }
+
+  function detailMasuk(id) {
+    const s = SM.find(x => x.id === id);
+    const bsaya = bagianSaya(), tugasIni = bsaya && s.disp.some(x => x.ke.includes(bsaya));
+    const bolehDisp = ['Ketua', 'Admin', 'Sekretariat'].includes(kunciPeran());
+    const back = drawer(`<div class="code" style="color:var(--red)">${esc(s.agenda)}</div><h2 style="font-size:1.25rem;margin-top:6px">${esc(s.perihal)}</h2>
+      <span class="badge ${smB[s.status]}">${s.status}</span> ${s.sifat !== 'Biasa' ? `<span class="badge bad">${esc(s.sifat)}</span>` : ''}${tugasIni ? ' <span class="badge warn">Tugas Anda</span>' : ''}
+      <div class="steps">${['Diterima', 'Didisposisi', 'Selesai'].map((x, i, a) => `<div class="${a.indexOf(s.status) >= i ? 'on' : ''}">${x}</div>`).join('')}</div>
+      <dl class="kv"><dt>Pengirim</dt><dd>${esc(s.asal)}</dd><dt>Nomor surat</dt><dd>${esc(s.nomor)}</dd><dt>Tanggal surat</dt><dd>${tgl(s.tglSurat)}</dd><dt>Diterima</dt><dd>${tgl(s.terima)}</dd></dl>
+      <div class="file"><i>PDF</i><div><b>${esc(s.berkas)}</b><div class="muted" style="font-size:.82rem">Hasil pindai surat — pada versi akhir tersimpan di Drive LSP</div></div></div>
+      <div class="acts"><button class="btn ghost" data-a="cetak">Cetak lembar disposisi</button>${s.status !== 'Selesai' ? '<button class="btn ghost" data-a="selesai">Tandai selesai</button>' : ''}</div>
+      <h3>Riwayat disposisi</h3>${s.disp.length ? `<div class="ver">${s.disp.map(x => `<div><b>${tgl(x.tgl)} → ${esc(x.ke.join(', '))}</b><span>${esc(x.instruksi)}${x.catatan ? ': ' + esc(x.catatan) : ''}</span>${x.batas ? `<span class="muted"> Batas ${tgl(x.batas)}</span>` : ''}</div>`).join('')}</div>` : '<p class="muted">Belum didisposisikan.</p>'}
+      ${s.status !== 'Selesai' && bolehDisp ? `<h3 style="margin-top:18px">Buat disposisi${kunciPeran() === 'Ketua' ? ' (Ketua LSP)' : ''}</h3><form class="form" id="fDisp">
+        <fieldset class="cek"><legend>Diteruskan kepada</legend>${BAGIAN.map(b => `<label><input type="checkbox" value="${esc(b)}"> ${esc(b)}</label>`).join('')}</fieldset>
+        <label class="f">Instruksi<select name="ins">${['Tindak lanjuti', 'Pelajari dan beri saran', 'Siapkan jawaban', 'Hadiri / wakili', 'Untuk diketahui', 'Arsipkan'].map(x => `<option>${x}</option>`).join('')}</select></label>
+        <label class="f">Catatan<textarea name="cat" rows="2"></textarea></label>
+        <div class="row2"><label class="f">Batas waktu<input type="date" name="batas"></label><div style="align-self:end"><button class="btn" type="submit">Kirim disposisi</button></div></div>
+        <p class="muted" style="font-size:.82rem;margin:0">Bagian yang dituju menerima pemberitahuan email (pada versi akhir).</p></form>` : s.status !== 'Selesai' && !bolehDisp ? '<p class="note">Disposisi dibuat oleh Ketua/Sekretariat/Admin. Anda dapat menandai selesai setelah menindaklanjuti bagian Anda.</p>' : ''}`);
+    back.addEventListener('click', (e) => {
+      const a = e.target.closest('[data-a]'); if (!a) return;
+      if (a.dataset.a === 'cetak') window.cetakDokumen(window.lembarDisposisi(s, BAGIAN), 'Lembar disposisi ' + s.agenda);
+      if (a.dataset.a === 'selesai') { s.status = 'Selesai'; catat('Menandai selesai surat masuk ' + s.agenda); tutupDrawer(); toast('Surat ' + s.agenda + ' selesai'); shell(); }
+    });
+    const fd = back.querySelector('#fDisp');
+    if (fd) fd.onsubmit = (e) => {
+      e.preventDefault();
+      const ke = Array.from(fd.querySelectorAll('input[type=checkbox]:checked')).map(x => x.value);
+      if (!ke.length) { toast('Pilih minimal satu bagian tujuan'); return; }
+      s.disp.push({ tgl: HARI_INI, ke, instruksi: fd.ins.value, catatan: fd.cat.value.trim(), batas: fd.batas.value });
+      s.status = 'Didisposisi'; catat('Mendisposisikan ' + s.agenda + ' ke ' + ke.join(', '), 'Ketua LSP');
+      tutupDrawer(); toast('Disposisi terkirim ke ' + ke.join(', ')); shell(); detailMasuk(id);
+    };
+  }
+
+  function formMasuk() {
+    tutupDrawer();
+    const no = `SM-${pad(seq.SM + 1)}/${HARI_INI.slice(0, 4)}`;
+    const back = drawer(`<h2>Catat surat masuk</h2><form class="form" id="fSM">
+      <div class="nobox"><span>Nomor agenda (otomatis)</span><b>${no}</b></div>
+      <label class="f">Pengirim<input name="asal" required placeholder="mis. Fakultas Teknik UNIMED"></label>
+      <div class="row2"><label class="f">Nomor surat pengirim<input name="nomor" required></label><label class="f">Sifat<select name="sifat"><option>Biasa</option><option>Segera</option><option>Sangat segera</option><option>Rahasia</option></select></label></div>
+      <div class="row2"><label class="f">Tanggal surat<input type="date" name="tglSurat" required></label><label class="f">Tanggal diterima<input type="date" name="terima" value="${HARI_INI}" required></label></div>
+      <label class="f">Perihal<input name="perihal" required></label>
+      <label class="f">Pindaian surat (PDF/JPG)<input type="file" accept=".pdf,.jpg,.jpeg,.png"></label>
+      <div><button class="btn" type="submit">Simpan surat masuk</button></div></form>`);
+    const f = back.querySelector('#fSM');
+    f.onsubmit = (e) => {
+      e.preventDefault(); seq.SM++;
+      const s = { id: SM.length + 1, agenda: no, tglSurat: f.tglSurat.value, terima: f.terima.value, asal: f.asal.value.trim(), nomor: f.nomor.value.trim(), perihal: f.perihal.value.trim(), sifat: f.sifat.value, status: 'Diterima', disp: [], berkas: 'Pindaian_' + no.replace(/\W+/g, '_') + '.pdf' };
+      SM.push(s); catat('Mencatat surat masuk ' + no); tutupDrawer(); toast('Surat masuk tercatat: ' + no); pergi('masuk'); detailMasuk(s.id);
+    };
+  }
+
+  /* ---------- Surat keluar ---------- */
+  function vKeluar(v, T) {
+    T.textContent = 'Surat keluar';
+    const f = fl();
+    v.innerHTML = `<p class="muted lead">Surat yang dibuat dari templat atau diunggah. Alur: Draf → Diajukan → Disahkan Ketua → Terkirim. Nomor surat diketik manual sesuai buku agenda; sistem menolak nomor kosong atau ganda.</p>
+      ${toolbar(f, ALUR, 'Cari perihal atau nomor surat', '<button class="btn" id="addSK" type="button">+ Buat surat</button>')}
+      <div class="table-wrap"><table><thead><tr><th>Nomor</th><th>Perihal</th><th>Tanggal</th><th>Arsip di</th><th>Status</th></tr></thead><tbody id="tb"></tbody></table></div><div class="pager" id="pg"></div>`;
+    const daftar = () => DOCS.filter(d => !d.arsip && d.surat && (!f.st || d.alur === f.st) && dalamRentang(d.terbit, f) && (!f.q || (d.judul + ' ' + d.kode).toLowerCase().includes(f.q.toLowerCase()))).sort((a, b) => b.kode.localeCompare(a.kode));
+    const draw = () => {
+      const list = daftar();
+      document.getElementById('tb').innerHTML = halaman(list, f).map(d => `<tr data-id="${d.id}"><td class="code" data-l="Nomor">${esc(d.kode)}</td><td data-l="Perihal">${esc(d.judul)}</td><td data-l="Tanggal">${tgl(d.terbit)}</td><td data-l="Arsip di">${esc(katNama(d.kat))}</td><td data-l="Status"><span class="badge ${alurB[d.alur]}">${d.alur}</span></td></tr>`).join('') || `<tr><td colspan="5" class="muted kosong">Tidak ada surat yang cocok dengan filter.</td></tr>`;
+      pager(list.length, f, draw);
+    };
+    ikatToolbar(f, draw);
+    document.getElementById('ex').onclick = () => unduhCSV('surat-keluar', ['Nomor', 'Perihal', 'Tanggal', 'Kategori arsip', 'Status'], daftar().map(d => [d.kode, d.judul, d.terbit, katNama(d.kat), d.alur]));
+    document.getElementById('addSK').onclick = () => pilih(true);
+    document.getElementById('tb').onclick = (e) => { const tr = e.target.closest('tr[data-id]'); if (tr) detail(+tr.dataset.id); };
+    draw();
+  }
+
+  /* ---------- Pedoman penomoran ---------- */
+  function vPedoman(v, T) {
+    T.textContent = 'Pedoman penomoran dokumen';
+    v.innerHTML = `<p class="muted lead">Semua nomor <b>diketik manual sesuai buku agenda</b> — tidak ada nomor otomatis. Sistem hanya memberi <b>saran urutan berikutnya</b> dan menolak nomor yang sudah dipakai.</p>
+      <div class="panel"><h2>Pola nomor</h2>
+      <p><span class="code">001/LSP-UNIMED/JENIS/BulanRomawi/Tahun</span> untuk surat & dokumen keluar, mis. <span class="code">075/LSP-UNIMED/UND/X/2026</span>.</p>
+      <p><span class="code">LSP-UNIMED/KAT/JENIS/001/Tahun</span> untuk dokumen mutu/skema/asesmen bila perlu kode arsip internal, mis. <span class="code">LSP-UNIMED/MUT/SOP/003/2026</span>.</p>
+      <p><span class="code">SM-###/Tahun</span> untuk surat masuk sesuai nomor agenda, mis. <span class="code">SM-044/2026</span>.</p></div>
+      <div class="panel" style="margin-top:14px"><h2>Kode jenis (JENIS)</h2>
+      <div class="table-wrap"><table><thead><tr><th>Kode</th><th>Arti</th><th>Contoh pakai</th><th>Kategori cocok</th></tr></thead><tbody>
+      ${JENIS.map(j => `<tr><td data-l="Kode"><b class="code">${j[0]}</b></td><td data-l="Arti">${esc(j[1])}</td><td data-l="Contoh">${esc(j[2])}</td><td data-l="Kategori">${esc(j[3])}</td></tr>`).join('')}
+      </tbody></table></div></div>
+      <div class="note" style="margin-top:14px"><b>Aturan:</b> urutan (001, 002, …) melanjutkan buku agenda berjalan per jenis per bulan — bukan per kategori. Bulan ditulis angka Romawi (I–XII). Nomor yang sudah dipakai tidak dapat dipakai ulang; ganti dengan urutan berikutnya.</div>`;
+  }
+
+  /* ---------- Templat ---------- */
+  function vTemplat(v, T) {
+    T.textContent = 'Templat dokumen';
+    const K = window.KOP;
+    const tplLihat = window.TEMPLAT.filter(t => bolehUbahKat(t.kat));
+    const kelolaKop = bolehKelolaKop();
+    v.innerHTML = `<p class="muted lead">Pilih templat, isi formulir singkat, dan dokumen tersusun lengkap dengan kop surat, nomor manual sesuai buku agenda, dan blok tanda tangan. Hasilnya dapat dicetak atau disimpan sebagai PDF.${tplLihat.length < window.TEMPLAT.length ? ' Templat di luar kategori Anda disembunyikan.' : ''}</p>
+      <div class="tpl-grid">${tplLihat.map(t => `<div class="panel tpl"><span class="chip">${t.surat ? 'Surat keluar' : 'Dokumen'}</span><h3>${esc(t.nama)}</h3><p class="muted">${esc(t.ket)}</p><div class="code muted" style="font-size:.78rem">Nomor diketik manual (lihat Pedoman penomoran)</div><button class="btn" data-t="${t.id}" type="button">Gunakan templat</button></div>`).join('') || '<div class="panel muted">Tidak ada templat untuk kategori Anda.</div>'}</div>
+      <div class="panel" style="margin-top:14px"><h2>Kop surat & penanda tangan bawaan</h2><p class="muted" style="font-size:.88rem">Dipakai oleh semua templat. Hanya Admin dan Sekretariat yang dapat mengubah.</p>
+        ${kelolaKop ? `<form class="form" id="fKop"><div class="row2"><label class="f">Baris 1 (lembaga)<input name="l1" value="${esc(K.l1)}"></label><label class="f">Baris 2 (universitas)<input name="l2" value="${esc(K.l2)}"></label></div>
+        <div class="row2"><label class="f">Baris 3 (lisensi)<input name="l3" value="${esc(K.l3)}"></label><label class="f">Kota penandatanganan<input name="kota" value="${esc(K.kota)}"></label></div>
+        <label class="f">Alamat sekretariat<input name="l4" value="${esc(K.l4)}"></label><label class="f">Laman / kontak<input name="l5" value="${esc(K.l5)}"></label>
+        <div class="row2"><label class="f">Jabatan penanda tangan<input name="jabatan" value="${esc(K.jabatan)}"></label><label class="f">Nama Ketua LSP<input name="nama" value="${esc(K.nama)}"></label></div>
+        <div class="row2"><label class="f">NIP Ketua<input name="nip" value="${esc(K.nip)}"></label><div style="align-self:end"><button class="btn" type="submit">Simpan pengaturan</button></div></div></form>` : '<p class="note">Formulir kop hanya dapat diubah oleh Admin atau Sekretariat. Peran Anda baca-saja di sini.</p>'}</div>
+      <div class="note" style="margin-top:14px"><b>Rencana versi akhir:</b> setiap templat disimpan sebagai berkas Google Docs berisi penanda seperti {{nomor}} dan {{perihal}}. Saat petugas menekan Simpan, sistem menyalin templat, mengisi penanda, lalu menyimpan versi PDF ke folder arsip. Templat baru cukup dibuat di Google Docs tanpa mengubah kode.</div>`;
+    v.querySelectorAll('[data-t]').forEach(b => b.onclick = () => { const t = window.TEMPLAT.find(x => x.id === b.dataset.t); if (!bolehUbahKat(t.kat)) { toast('Templat ini di luar kategori Anda'); return; } window.bukaTemplat(b.dataset.t, API); });
+    const fk = document.getElementById('fKop');
+    if (fk) fk.onsubmit = (e) => { e.preventDefault(); if (!bolehKelolaKop()) { toast('Hanya Admin atau Sekretariat yang dapat mengubah kop'); return; } Array.from(fk.elements).forEach(x => { if (x.name) K[x.name] = x.value.trim(); }); catat('Mengubah pengaturan kop surat'); toast('Pengaturan kop surat disimpan'); };
+  }
+
+  function vAktivitas(v, T) {
+    T.textContent = 'Riwayat aktivitas';
+    v.innerHTML = `<p class="muted lead">Setiap pembuatan, pencatatan, pengesahan, disposisi, dan pengunduhan dokumen tercatat dan tidak dapat diubah.</p><div class="table-wrap"><table><thead><tr><th>Waktu</th><th>Petugas</th><th>Aktivitas</th></tr></thead><tbody>${LOG.map(l => `<tr><td data-l="Waktu" style="white-space:nowrap">${esc(l[0])}</td><td data-l="Petugas">${esc(l[1])}</td><td data-l="Aktivitas">${esc(l[2])}</td></tr>`).join('')}</tbody></table></div>`;
+  }
+
+  async function vPengguna(v, T) {
+    T.textContent = 'Pengguna & hak akses';
+    const R = [
+      ['Ketua LSP', 'Semua kategori', 'Ya', 'Ya', 'Ya'],
+      ['Admin', 'Semua kategori', 'Ya', 'Tidak', 'Ya'],
+      ['Sekretariat', 'Semua kategori', 'Ya', 'Tidak', 'Ya'],
+      ['Manajemen Mutu', 'Mutu, rapat & manajemen, asesor', 'Ya', 'Tidak', 'Tidak'],
+      ['Bidang Sertifikasi', 'Asesor, tempat uji, rekaman asesmen', 'Ya', 'Tidak', 'Tidak'],
+      ['Bidang Skema', 'Skema & MUK', 'Ya', 'Tidak', 'Tidak'],
+      ['Administrasi', 'Surat-menyurat, rekaman asesmen', 'Ya', 'Tidak', 'Tidak']
+    ];
+    const kelola = ['Admin', 'Ketua LSP'].includes(kunciPeran());
+    v.innerHTML = `<p class="muted lead">Masuk sebagai <b>${esc((SESI && SESI.nama) || '')}</b> (@${esc((SESI && SESI.username) || '')} · ${esc(PERAN_AKTIF)}). Satu akun satu peran; password tersimpan sebagai hash di server.</p>
+      <div class="table-wrap"><table><thead><tr><th>Peran</th><th>Kategori yang dapat diubah</th><th>Buat & unggah</th><th>Sahkan surat</th><th>Ubah kop & templat</th></tr></thead><tbody>${R.map(r => `<tr><td data-l="Peran"><b>${r[0]}</b></td><td data-l="Kategori">${r[1]}</td><td data-l="Buat & unggah">${r[2]}</td><td data-l="Sahkan surat">${r[3]}</td><td data-l="Ubah kop">${r[4]}</td></tr>`).join('')}</tbody></table></div>
+      <div class="panel" style="margin-top:14px"><h2>Ganti password saya</h2><form class="form" id="fPw"><label class="f">Password lama<input type="password" name="lama" required autocomplete="current-password"></label><label class="f">Password baru (min. 8 karakter)<input type="password" name="baru" required minlength="8" autocomplete="new-password"></label><div><button class="btn" type="submit">Simpan password</button></div><p class="muted" style="font-size:.84rem;margin:0" id="pwInfo"></p></form></div>
+      <div class="panel" style="margin-top:14px"><h2>Daftar akun</h2><div id="akunList"><p class="muted">Memuat…</p></div>${kelola ? `<h2 style="margin-top:16px">Buat akun baru</h2><form class="form" id="fAkun"><div class="row2"><label class="f">Username<input name="username" required pattern="[a-z0-9._]{3,30}" placeholder="huruf kecil, mis. sekretariat"></label><label class="f">Nama lengkap<input name="nama" required></label></div><div class="row2"><label class="f">Peran<select name="peran"><option>Ketua LSP</option><option>Admin</option><option>Sekretariat</option><option>Administrasi</option><option>Bidang Sertifikasi</option><option>Manajemen Mutu</option><option>Bidang Skema</option></select></label><label class="f">Password awal (min. 8)<input type="password" name="password" required minlength="8" autocomplete="new-password"></label></div><div><button class="btn" type="submit">Buat akun</button></div><p class="muted" style="font-size:.84rem;margin:0" id="akunInfo"></p></form><div id="editAkun"></div>` : '<p class="muted" style="font-size:.86rem">Penambahan akun dan reset sandi hanya oleh Admin atau Ketua LSP.</p>'}</div>
+      <p class="muted" style="font-size:.86rem;margin-top:12px">Semua peran dapat melihat dan mengunduh dokumen kategori umum. Kategori asesor dan rekaman asesmen hanya terbuka untuk Sekretariat, Sertifikasi, dan Manajemen Mutu.</p>`;
+    const pw = v.querySelector('#fPw');
+    pw.onsubmit = async (e) => {
+      e.preventDefault();
+      const info = v.querySelector('#pwInfo'); info.textContent = 'Menyimpan…';
+      try { await api('gantiPassword', { data: { lama: pw.lama.value, baru: pw.baru.value } }); info.textContent = 'Password diganti. Sesi di perangkat lain ikut berakhir; sesi ini tetap aktif.'; pw.reset(); }
+      catch (err) { info.textContent = err.message; }
+    };
+    const muatAkun = async () => {
+      const el = v.querySelector('#akunList');
+      try {
+        const list = await api('daftarPengguna');
+        el.innerHTML = `<div class="table-wrap"><table><thead><tr><th>Username</th><th>Nama</th><th>Peran</th><th>Aktif</th>${kelola ? '<th>Kelola</th>' : ''}</tr></thead><tbody>${list.map(a => { const un = a.username || ''; return `<tr><td data-l="Username">${un ? '@' + esc(un) : '<span class="muted">— tanpa username</span>'}</td><td data-l="Nama">${esc(a.nama)}</td><td data-l="Peran">${esc(a.peran)}</td><td data-l="Aktif">${esc(a.aktif || 'YA')}</td>${kelola ? (un ? `<td data-l="Kelola"><button class="btn ghost" type="button" data-ubah="${esc(un)}">Ubah</button> <button class="btn ghost" type="button" data-reset="${esc(un)}">Reset sandi</button> <button class="btn ghost" type="button" data-hapus="${esc(un)}">Hapus</button></td>` : '<td data-l="Kelola"><span class="muted" style="font-size:.82rem">Perbaiki di sheet: kolom username kosong</span></td>') : ''}</tr>`; }).join('')}</tbody></table></div>`;
+        el.querySelectorAll('[data-reset]').forEach(b => b.onclick = async () => {
+          const pwBaru = prompt('Password baru untuk @' + b.dataset.reset + ' (min. 8 karakter):');
+          if (!pwBaru) return;
+          try { await api('aturSandi', { data: { username: b.dataset.reset, password: pwBaru } }); toast('Sandi @' + b.dataset.reset + ' direset'); }
+          catch (err) { toast(err.message); }
+        });
+        el.querySelectorAll('[data-hapus]').forEach(b => b.onclick = async () => {
+          if (!confirm('Hapus akun @' + b.dataset.hapus + '? Akun langsung tidak bisa masuk.')) return;
+          try { await api('hapusPengguna', { data: { username: b.dataset.hapus } }); toast('Akun @' + b.dataset.hapus + ' dihapus'); muatAkun(); }
+          catch (err) { toast(err.message); }
+        });
+        el.querySelectorAll('[data-ubah]').forEach(b => b.onclick = () => bukaUbah(b.dataset.ubah, list));
+      } catch (err) { el.innerHTML = `<p class="muted">${esc(err.message)}</p>`; }
+    };
+    const bukaUbah = (usernameLama, list) => {
+      const a = (list || []).find(x => x.username === usernameLama) || { username: usernameLama, nama: '', peran: 'Sekretariat', aktif: 'YA' };
+      const box = v.querySelector('#editAkun');
+      const opsi = ['Ketua LSP', 'Admin', 'Sekretariat', 'Administrasi', 'Bidang Sertifikasi', 'Manajemen Mutu', 'Bidang Skema'].map(p => `<option${p === a.peran ? ' selected' : ''}>${p}</option>`).join('');
+      box.innerHTML = `<h2 style="margin-top:16px">Ubah akun @${esc(usernameLama)}</h2><form class="form" id="fUbah"><div class="row2"><label class="f">Username baru<input name="username" required pattern="[a-z0-9._]{3,30}" value="${esc(a.username)}"></label><label class="f">Nama lengkap<input name="nama" required value="${esc(a.nama)}"></label></div><div class="row2"><label class="f">Peran<select name="peran">${opsi}</select></label><label class="f">Status<select name="aktif"><option value="YA"${(a.aktif || 'YA') === 'YA' ? ' selected' : ''}>YA (aktif)</option><option value="TIDAK"${a.aktif === 'TIDAK' ? ' selected' : ''}>TIDAK (nonaktif)</option></select></label></div><label class="f">Password baru (kosongkan bila tidak diganti, min. 8)<input type="password" name="password" minlength="8" autocomplete="new-password" placeholder="kosongkan bila tidak diganti"></label><div style="display:flex;gap:8px"><button class="btn" type="submit">Simpan perubahan</button><button class="btn ghost" type="button" id="bBatalUbah">Batal</button></div><p class="muted" style="font-size:.84rem;margin:0" id="ubahInfo"></p></form>`;
+      box.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      box.querySelector('#bBatalUbah').onclick = () => { box.innerHTML = ''; };
+      box.querySelector('#fUbah').onsubmit = async (e) => {
+        e.preventDefault();
+        const f = e.target, info = box.querySelector('#ubahInfo'); info.textContent = 'Menyimpan…';
+        try {
+          const isi = { lama: usernameLama, username: f.username.value.trim(), nama: f.nama.value.trim(), peran: f.peran.value, aktif: f.aktif.value };
+          if (f.password.value) isi.password = f.password.value;
+          const r = await api('simpanPengguna', { data: isi });
+          info.textContent = 'Tersimpan.';
+          // Bila username sendiri diganti, perbarui sesi lokal.
+          if (SESI && SESI.username === usernameLama && r && r.username && r.username !== usernameLama) {
+            SESI.username = r.username; SESI.nama = r.nama || SESI.nama; SESI.peran = r.peran || SESI.peran;
+            try { (SESI.ingat ? localStorage : sessionStorage).setItem('arsip_sesi', JSON.stringify(SESI)); } catch (err) {}
+          }
+          toast('Akun @' + usernameLama + ' diperbarui'); box.innerHTML = ''; muatAkun(); shell();
+        } catch (err) { info.textContent = err.message; }
+      };
+    };
+    muatAkun();
+    const fa = v.querySelector('#fAkun');
+    if (fa) fa.onsubmit = async (e) => {
+      e.preventDefault();
+      const info = v.querySelector('#akunInfo'); info.textContent = 'Membuat akun…';
+      try {
+        await api('simpanPengguna', { data: { username: fa.username.value.trim(), nama: fa.nama.value.trim(), peran: fa.peran.value, password: fa.password.value } });
+        info.textContent = 'Akun dibuat.'; fa.reset(); muatAkun();
+      } catch (err) { info.textContent = err.message; }
+    };
+  }
+
+  /* ---------- Detail dokumen / surat keluar ---------- */
+  function detail(id) {
+    tutupDrawer();
+    const d = DOCS.find(x => x.id === id), s = status(d);
+    if (!bolehLihatKat(d.kat)) { drawer('<h2>Akses terbatas</h2><p class="muted">Dokumen kategori ini tidak dapat dibuka oleh peran Anda.</p>'); return; }
+    const bisaUbah = bolehUbahKat(d.kat);
+    d.riwayat = d.riwayat || [];
+    const infoRev = (r) => d.riwayat.find(x => x.rev === r) || null;
+    const vers = Array.from({ length: d.rev }, (_, i) => d.rev - i).map(r => { const info = infoRev(r); return `<div><b>Revisi ${r}${r === d.rev ? ' (berlaku)' : ''}</b><span class="muted">${r === d.rev ? tgl(d.terbit || HARI_INI) : 'Diganti oleh revisi ' + (r + 1)}</span>${info && info.catatan ? `<div style="font-size:.84rem;margin-top:2px">Catatan: ${esc(info.catatan)}</div>` : ''}${info && info.file_url ? `<div style="font-size:.82rem"><a href="${esc(info.file_url)}" target="_blank" rel="noopener">Buka berkas revisi ${r}</a></div>` : ''}</div>`; }).join('');
+    let aksi = '';
+    if (d.surat) {
+      const i = ALUR.indexOf(d.alur);
+      aksi = { Draf: (d.tpl && bisaUbah ? '<button class="btn ghost" data-a="ubah">Ubah draf</button>' : '') + (bisaUbah ? '<button class="btn" data-a="ajukan">Ajukan pengesahan</button>' : ''),
+        Diajukan: bolehSahkan() ? '<button class="btn" data-a="sahkan">Sahkan (Ketua)</button><button class="btn ghost" data-a="kembali">Kembalikan ke draf</button>' : '<p class="note">Menunggu pengesahan Ketua LSP.</p>',
+        Disahkan: bisaUbah ? '<button class="btn" data-a="kirim">Tandai terkirim</button><button class="btn ghost" data-a="Unggah pindaian bertanda tangan (demo)">Unggah versi bertanda tangan</button>' : '', Terkirim: '' }[d.alur];
+      aksi = `<div class="steps">${ALUR.map((x, j) => `<div class="${i >= j ? 'on' : ''}">${x === 'Disahkan' ? 'Disahkan Ketua' : x}</div>`).join('')}</div>${aksi ? `<div class="acts">${aksi}</div>` : ''}${d.alur === 'Diajukan' && !bolehSahkan() ? '<p class="muted" style="font-size:.82rem;margin-top:-8px">Tombol Sahkan hanya tampil untuk akun Ketua LSP; Ketua menerima pemberitahuan saat ada surat diajukan.</p>' : ''}`;
+      if (!bisaUbah && !bolehSahkan() && d.alur === 'Draf') aksi += '';
+    } else if (d.tpl && d.status === 'Draf' && bisaUbah) aksi = '<div class="acts"><button class="btn ghost" data-a="ubah">Ubah draf</button></div>';
+    else if (!bisaUbah && !d.surat) aksi = '<p class="note">Dokumen ini baca-saja untuk peran Anda.</p>';
+    // Kelola dokumen: semua jenis bisa diarsipkan & dihapus (mis. salah input).
+    // Aturan: Admin/Sekretariat (+Ketua) semua kategori; peran lain hanya dokumen miliknya.
+    const kelola = bolehKelolaArsip(d);
+    if (kelola && !d.arsip) {
+      aksi += `<div class="acts"><button class="btn ghost" data-a="edit">Ubah data</button><button class="btn ghost" data-a="arsip">Arsipkan</button><button class="btn ghost" data-a="hapus">Hapus</button></div>`;
+    } else if (kelola && d.arsip) {
+      aksi += `<div class="acts"><button class="btn ghost" data-a="keluar-arsip">Keluarkan dari arsip</button><button class="btn ghost" data-a="hapus">Hapus</button></div>`;
+    } else if (bisaUbah && !d.arsip) {
+      aksi += `<div class="acts"><button class="btn ghost" data-a="edit">Ubah data</button></div>`;
+    }
+    const back = drawer(`<div class="code" style="color:var(--red)">${esc(d.kode)}</div><h2 style="font-size:1.25rem;margin-top:6px">${esc(d.judul)}</h2>${d.surat ? `<span class="badge ${alurB[d.alur]}">${d.alur}</span>` : `<span class="badge ${s[1]}">${s[0]}</span>`}
+      ${aksi}
+      <dl class="kv"><dt>Kategori</dt><dd>${esc(katNama(d.kat))}</dd><dt>Penanggung jawab</dt><dd>${esc(d.pemilik)}</dd><dt>Tanggal</dt><dd>${tgl(d.terbit)}</dd><dt>Berlaku sampai</dt><dd>${d.sampai ? tgl(d.sampai) : 'Tidak terbatas'}</dd><dt>Sumber</dt><dd>${d.tpl ? 'Dibuat dari templat ' + esc((window.TEMPLAT.find(t => t.id === d.tpl.id) || {}).nama || '') : 'Berkas diunggah'}</dd><dt>Masa simpan</dt><dd>${esc((KAT.find(k => k[0] === d.kat) || [])[3])}</dd><dt>Akses</dt><dd>${d.kat === 'ASM' || d.kat === 'ASR' ? 'Terbatas: Sekretariat, Sertifikasi, Manajemen Mutu' : 'Seluruh petugas LSP'}</dd></dl>
+      <div class="file"><i>PDF</i><div><b>${d.file_url ? `<a href="${esc(d.file_url)}" target="_blank" rel="noopener">${esc(d.berkas)}</a>` : esc(d.berkas)}</b><div class="muted" style="font-size:.82rem">${d.file_url ? 'Tersimpan di Drive LSP — klik nama berkas untuk membuka.' : (d.tpl ? 'PDF disusun otomatis dari templat' : 'Belum ada tautan berkas — tambahkan lewat Ubah data atau Unggah revisi.')}</div></div></div>
+      <div class="acts">${d.tpl ? '<button class="btn" data-a="lihat">Lihat & cetak</button>' : ''}${d.file_url ? `<a class="btn ghost" href="${esc(d.file_url)}" target="_blank" rel="noopener" data-a="unduh">Buka / unduh berkas</a>` : '<button class="btn ghost" data-a="tanpa-berkas">Unduh</button>'}${bisaUbah ? '<button class="btn ghost" data-a="revisi">Unggah revisi</button>' : ''}</div>
+      <p class="muted" style="font-size:.82rem">Unduh membuka berkas Drive; Unggah revisi menyimpan berkas baru sebagai Revisi ${d.rev + 1} dan menaikkan nomor revisi (riwayat lama tetap tercatat).</p>
+      ${d.tpl ? `<h3>Pratinjau</h3><div class="mini"><div class="kertas">${htmlDok(d)}</div></div>` : ''}
+      <h3 style="margin-top:16px">Riwayat revisi</h3><div class="ver">${vers}</div>`);
+    const mini = back.querySelector('.mini');
+    if (mini) { const k = mini.firstElementChild, sc = () => { const r = mini.clientWidth / k.offsetWidth; k.style.transform = `scale(${r})`; mini.style.height = Math.min(k.offsetHeight * r, 520) + 'px'; }; requestAnimationFrame(sc); }
+    back.addEventListener('click', (e) => {
+      const a = e.target.closest('[data-a]'); if (!a) return;
+      const act = a.dataset.a, ubahAlur = (al, pesan, siapa) => { if (al === 'Disahkan' && !bolehSahkan()) { toast('Hanya Ketua LSP yang dapat mengesahkan'); return; } if (['Diajukan', 'Draf', 'Terkirim'].includes(al) && !bisaUbah && al !== 'Draf') { toast('Di luar kategori Anda'); return; } d.alur = al; d.status = al === 'Disahkan' || al === 'Terkirim' ? 'Berlaku' : 'Draf'; catat(pesan + ' ' + d.kode, siapa); toast(pesan + ' ' + d.kode); shell(); detail(id); };
+      if (act === 'lihat') window.cetakDokumen(htmlDok(d), d.judul);
+      else if (act === 'ubah') { if (!bisaUbah) { toast('Di luar kategori Anda'); return; } tutupDrawer(); window.bukaTemplat(d.tpl.id, API, { id: d.id, kat: d.kat, nomor: d.kode, data: d.tpl.data }); }
+      else if (act === 'ajukan') { if (!bisaUbah) { toast('Di luar kategori Anda'); return; } ubahAlur('Diajukan', 'Mengajukan pengesahan'); }
+      else if (act === 'kembali') { if (!bolehSahkan()) { toast('Hanya Ketua LSP'); return; } ubahAlur('Draf', 'Mengembalikan ke draf', 'Ketua LSP'); }
+      else if (act === 'sahkan') ubahAlur('Disahkan', 'Mengesahkan', 'Ketua LSP');
+      else if (act === 'kirim') { if (!bisaUbah) { toast('Di luar kategori Anda'); return; } ubahAlur('Terkirim', 'Menandai terkirim'); }
+      else if (act === 'edit') { if (!bolehKelolaArsip(d) && !bisaUbah) { toast('Di luar kategori Anda'); return; } tutupDrawer(); formEditDok(id); }
+      else if (act === 'arsip') { if (!bolehKelolaArsip(d)) { toast('Hanya Admin/Sekretariat, atau pemilik dokumen di kategorinya'); return; } d.arsip = true; d.status = 'Berlaku'; if (!d.terbit) d.terbit = HARI_INI; catat('Mengarsipkan ' + d.kode); toast('Diarsipkan: ' + d.kode); shell(); detail(id); }
+      else if (act === 'keluar-arsip') { if (!bolehKelolaArsip(d)) { toast('Hanya Admin/Sekretariat, atau pemilik dokumen di kategorinya'); return; } d.arsip = false; catat('Mengeluarkan dari arsip ' + d.kode); toast('Dikeluarkan dari arsip: ' + d.kode); shell(); detail(id); }
+      else if (act === 'tanpa-berkas') { toast('Belum ada berkas Drive untuk dokumen ini. Tambahkan lewat Ubah data atau Unggah revisi.'); return; }
+      else if (act === 'unduh') { catat('Mengunduh ' + d.kode); return; }
+      else if (act === 'revisi') { if (!bisaUbah) { toast('Di luar kategori Anda'); return; } tutupDrawer(); formRevisi(id); return; }
+      else if (act === 'hapus') { if (!bolehKelolaArsip(d)) { toast('Hanya Admin/Sekretariat, atau pemilik dokumen di kategorinya'); return; } if (!confirm('Hapus ' + (d.surat ? 'surat ' : 'dokumen ') + d.kode + ' — ' + d.judul + '?' + (d.arsip ? ' (dokumen arsip)' : ''))) return; DOCS = DOCS.filter(x => x.id !== id); catat('Menghapus ' + d.kode); tutupDrawer(); shell(); toast('Dihapus: ' + d.kode); }
+      else toast(act);
+    });
+  }
+
+  /* ---------- Ubah data dokumen (judul, kategori, penanggung jawab, tanggal, tautan) ---------- */
+  function formEditDok(id) {
+    const d = DOCS.find(x => x.id === id);
+    if (!bolehUbahKat(d.kat)) { toast('Di luar kategori Anda'); return; }
+    const katBoleh = KAT.filter(k => bolehUbahKat(k[0]));
+    const back = drawer(`<h2>Ubah data dokumen</h2><p class="muted" style="margin-top:-6px">${esc(d.kode)}</p>
+      <form class="form" id="fED"><label class="f">Judul / perihal<input name="judul" required value="${esc(d.judul)}"></label>
+      <label class="f">Kategori arsip<select name="kat">${katBoleh.map(k => `<option value="${k[0]}"${k[0] === d.kat ? ' selected' : ''}>${esc(k[1])}</option>`).join('')}</select></label>
+      <label class="f">Penanggung jawab<input name="pemilik" value="${esc(d.pemilik || '')}"></label>
+      <div class="row2"><label class="f">Tanggal<input type="date" name="terbit" value="${esc(d.terbit || '')}"></label><label class="f">Berlaku sampai (opsional)<input type="date" name="sampai" value="${esc(d.sampai || '')}"></label></div>
+      <label class="f">Ganti berkas (opsional, PDF/DOCX/XLSX/JPG maks 10 MB)<input type="file" name="berkas" accept=".pdf,.doc,.docx,.xls,.xlsx,.jpg,.jpeg,.png"></label>
+      <label class="f">atau tautan berkas Drive (agar nama berkas bisa diklik)<input name="tautan" value="${esc(d.file_url || '')}" placeholder="https://drive.google.com/..."></label>
+      <div><button class="btn" type="submit" id="btnED">Simpan perubahan</button></div></form>`);
+    const f = back.querySelector('#fED');
+    f.onsubmit = async (e) => {
+      e.preventDefault();
+      const k = f.kat.value;
+      if (!bolehUbahKat(k)) { toast('Kategori ' + k + ' di luar wewenang peran Anda'); return; }
+      const btn = back.querySelector('#btnED'); btn.disabled = true; btn.textContent = 'Menyimpan…';
+      let file_id = d.file_id || '', file_nama = d.berkas, file_url = f.tautan.value.trim();
+      try {
+        const fl = await bacaBerkas(f.berkas);
+        if (fl) {
+          if (file_url && file_url !== (d.file_url || '')) { file_nama = fl.nama; }
+          else {
+            try {
+              const up = await api('unggahBerkas', { data: { nama: fl.nama, mime: fl.mime, base64: fl.base64, kat: k } });
+              file_id = up.file_id || file_id; file_nama = up.file_nama || fl.nama; file_url = up.file_url || file_url;
+            } catch (err) { toast(err.message + ' Data tetap disimpan tanpa mengganti tautan.'); }
+          }
+        }
+      } catch (err) { toast(err.message); btn.disabled = false; btn.textContent = 'Simpan perubahan'; return; }
+      Object.assign(d, { judul: f.judul.value.trim(), kat: k, pemilik: f.pemilik.value.trim() || d.pemilik, terbit: f.terbit.value, sampai: f.sampai.value, file_id, berkas: file_nama || d.berkas, file_url });
+      catat('Mengubah data ' + d.kode); tutupDrawer(); toast('Perubahan tersimpan: ' + d.kode); shell(); detail(id);
+    };
+  }
+
+  /* ---------- Unggah revisi: berkas baru -> Revisi berikutnya, riwayat lama tetap ---------- */
+  function formRevisi(id) {
+    const d = DOCS.find(x => x.id === id);
+    if (!bolehUbahKat(d.kat)) { toast('Di luar kategori Anda'); return; }
+    const back = drawer(`<h2>Unggah revisi ${d.rev + 1}</h2><p class="muted" style="margin-top:-6px">${esc(d.kode)} — ${esc(d.judul)}</p>
+      <p class="muted" style="font-size:.86rem">Revisi menaikkan nomor revisi (kini Rev. ${d.rev}) tanpa menghapus riwayat. Berkas tersimpan ke folder Drive kategori ${esc(d.kat)}.</p>
+      <form class="form" id="fR"><label class="f">Berkas revisi (maks 10 MB)<input type="file" name="berkas" required accept=".pdf,.doc,.docx,.xls,.xlsx,.jpg,.jpeg,.png"></label>
+      <label class="f">atau tautan Drive<input name="tautan" placeholder="https://drive.google.com/..."></label>
+      <label class="f">Catatan revisi<input name="catatan" placeholder="mis. Penyesuaian MUK sesuai masukan BNSP"></label>
+      <div><button class="btn" type="submit" id="btnRev">Simpan revisi ${d.rev + 1}</button></div></form>`);
+    const f = back.querySelector('#fR');
+    f.onsubmit = async (e) => {
+      e.preventDefault();
+      const btn = back.querySelector('#btnRev'); btn.disabled = true; btn.textContent = 'Menyimpan…';
+      let file_id = d.file_id || '', file_nama = d.berkas, file_url = (f.tautan.value || '').trim();
+      try {
+        const fl = await bacaBerkas(f.berkas);
+        if (fl && !file_url) {
+          const up = await api('unggahBerkas', { data: { nama: fl.nama, mime: fl.mime, base64: fl.base64, kat: d.kat } });
+          file_id = up.file_id || file_id; file_nama = up.file_nama || fl.nama; file_url = up.file_url || file_url;
+        } else if (fl && file_url) { file_nama = fl.nama; }
+      } catch (err) { toast(err.message); btn.disabled = false; btn.textContent = 'Simpan revisi ' + (d.rev + 1); return; }
+      if (!file_url && !file_nama) { toast('Pilih berkas atau isi tautan Drive.'); btn.disabled = false; btn.textContent = 'Simpan revisi ' + (d.rev + 1); return; }
+      const catatan = f.catatan.value.trim();
+      d.riwayat = d.riwayat || [];
+      Object.assign(d, { rev: d.rev + 1, terbit: HARI_INI, berkas: file_nama || d.berkas, file_id, file_url });
+      d.riwayat.push({ rev: d.rev, tanggal: HARI_INI, oleh: PERAN_AKTIF, catatan, file_id, file_nama: file_nama || d.berkas, file_url });
+      catat('Mengunggah revisi ' + d.rev + ' ' + d.kode + (catatan ? ' — ' + catatan : ''));
+      tutupDrawer(); toast('Revisi ' + d.rev + ' tersimpan: ' + d.kode); shell(); detail(id);
+    };
+  }
+
+  /* ---------- Dokumen baru: pilih cara ---------- */
+  function pilih(hanyaSurat) {
+    tutupDrawer();
+    const tp = window.TEMPLAT.filter(t => (!hanyaSurat || t.surat) && bolehUbahKat(t.kat));
+    const bsMasuk = bolehCatatMasuk() && !hanyaSurat;
+    const back = drawer(`<h2>${hanyaSurat ? 'Buat surat keluar' : 'Dokumen baru'}</h2><p class="muted">Pilih cara mencatat dokumen.${tp.length < window.TEMPLAT.length ? ' Templat di luar kategori Anda disembunyikan.' : ''}</p>
+      <div class="choice"><button type="button" data-c="templat" class="on"><b>Buat di web dari templat</b><span>Isi formulir singkat; sistem menyusun dokumen lengkap dengan kop surat, nomor manual sesuai buku agenda, dan tanda tangan. Siap dicetak atau disimpan PDF.</span></button>
+      <button type="button" data-c="unggah"><b>Unggah berkas</b><span>Dokumen sudah jadi (PDF hasil pindai atau dari aplikasi lain). Sistem memberi nomor register dan menyimpan berkasnya.</span></button>
+      ${bsMasuk ? '<button type="button" data-c="masuk"><b>Catat surat masuk</b><span>Surat dari pihak lain: beri nomor agenda, unggah pindaian, lalu disposisikan.</span></button>' : ''}</div>
+      <h3 style="margin-top:18px" id="tplH">Pilih templat</h3><ul class="list">${tp.map(t => `<li><span><b>${esc(t.nama)}</b> <span class="chip">${t.surat ? 'surat' : 'dokumen'}</span><br><span class="muted" style="font-size:.84rem">${esc(t.ket)}</span></span><button class="btn ghost" type="button" data-t="${t.id}">Gunakan</button></li>`).join('') || '<li class="muted">Tidak ada templat untuk kategori Anda.</li>'}</ul>`);
+    back.addEventListener('click', (e) => {
+      const c = e.target.closest('[data-c]'), t = e.target.closest('[data-t]');
+      if (c && c.dataset.c === 'unggah') { tutupDrawer(); form(hanyaSurat); }
+      else if (c && c.dataset.c === 'masuk') { if (!bolehCatatMasuk()) { toast('Hanya Admin, Sekretariat, atau Ketua yang dapat mencatat surat masuk'); return; } formMasuk(); }
+      else if (c) back.querySelector('#tplH').scrollIntoView({ behavior: 'smooth' });
+      else if (t) { const tm = window.TEMPLAT.find(x => x.id === t.dataset.t); if (!bolehUbahKat(tm.kat)) { toast('Templat ini di luar kategori Anda'); return; } tutupDrawer(); window.bukaTemplat(t.dataset.t, API); }
+    });
+  }
+
+  /* Jembatan untuk editor templat (templat.js) */
+  const API = {
+    hariIni: HARI_INI, KAT, JENIS, jenisArti,
+    saranSurat(kode, t) { return saranSurat(kode, t); },
+    nomorSurat(kode, t) { return saranSurat(kode, t); },
+    nomorTerakhir(n) { return DOCS.filter(d => d.surat).map(d => d.kode).sort((a, b) => b.localeCompare(a)).slice(0, n || 5); },
+    nomorDipakai(no) { return nomorDipakai(no); },
+    simpan(o) {
+      const katTujuan = o.kat || (o.id && (DOCS.find(x => x.id === o.id) || {}).kat);
+      if (katTujuan && !bolehUbahKat(katTujuan)) { toast('Kategori ' + katTujuan + ' di luar wewenang peran Anda'); return; }
+      const stt = o.surat ? (o.alur === 'Disahkan' ? 'Berlaku' : 'Draf') : (o.alur === 'Berlaku' ? 'Berlaku' : 'Draf');
+      let d;
+      if (o.id) {
+        d = DOCS.find(x => x.id === o.id);
+        Object.assign(d, { judul: o.judul, kat: o.kat, tpl: o.tpl, terbit: o.tanggal, status: stt }); if (d.surat) d.alur = o.alur === 'Diajukan' ? 'Diajukan' : 'Draf';
+        catat((d.alur === 'Diajukan' ? 'Mengajukan pengesahan ' : 'Memperbarui draf ') + d.kode);
+      } else {
+        const m = String(o.nomor || '').match(/^(\d+)/); if (m) seq.SURAT = Math.max(seq.SURAT || 0, +m[1]);
+        d = { id: DOCS.length + 1, kode: o.nomor, kat: o.kat, judul: o.judul, pemilik: (typeof bagianSaya === 'function' && bagianSaya()) || 'Sekretariat', terbit: o.tanggal || HARI_INI, sampai: '', status: stt, rev: 1, berkas: o.judul.replace(/[^A-Za-z0-9]+/g, '_').slice(0, 40) + '.pdf', tpl: o.tpl };
+        if (o.surat) { d.surat = true; d.alur = o.alur; }
+        DOCS.push(d); catat('Membuat ' + o.jenis.toLowerCase() + ' ' + d.kode + ' dari templat');
+      }
+      toast((d.surat ? (d.alur === 'Diajukan' ? 'Diajukan ke Ketua: ' : 'Draf tersimpan: ') : (stt === 'Berlaku' ? 'Diarsipkan: ' : 'Draf tersimpan: ')) + d.kode);
+      if (d.surat) pergi('keluar'); else pergi('dokumen', d.kat);
+      detail(d.id);
+    }
+  };
+
+  /* ---------- Unggah berkas (nomor manual + simpan ke Drive) ---------- */
+  // bacaBerkas: file input -> {nama, mime, base64} (base64 untuk dikirim ke backend unggahBerkas).
+  const bacaBerkas = (inp) => new Promise((res, rej) => {
+    const fl = inp.files && inp.files[0];
+    if (!fl) return res(null);
+    if (fl.size > 10 * 1024 * 1024) return rej(new Error('Berkas lebih dari 10 MB — unggah manual ke Drive lalu tempel link via Ubah data.'));
+    const r = new FileReader();
+    r.onload = () => res({ nama: fl.name, mime: fl.type || 'application/octet-stream', base64: String(r.result) });
+    r.onerror = () => rej(new Error('Gagal membaca berkas.'));
+    r.readAsDataURL(fl);
+  });
+  function form(surat) {
+    const katBoleh = KAT.filter(k => bolehUbahKat(k[0]));
+    if (!katBoleh.length) { toast('Tidak ada kategori yang dapat Anda ubah'); return; }
+    const back = drawer(`<h2>Unggah berkas</h2><p class="muted" style="margin-top:-6px">Nomor <b>diketik manual sesuai buku agenda</b> (lihat tab Pedoman penomoran). Berkas disimpan ke folder Drive LSP.</p>
+      <form class="form" id="fD">${surat ? '' : `<label class="f">Jenis<select name="jenis"><option value="dok">Dokumen (nomor manual buku agenda)</option><option value="surat">Surat keluar (nomor dari buku agenda)</option></select></label>`}
+      <label class="f">Kategori arsip<select name="kat">${katBoleh.map(k => `<option value="${k[0]}"${surat && k[0] === 'KOR' ? ' selected' : ''}>${esc(k[1])}</option>`).join('')}</select></label>
+      <label class="f">Judul / perihal<input name="judul" required placeholder="mis. Berita Acara Asesmen Skema Web Developer"></label>
+      <label class="f">Kode jenis<select name="kj">${JENIS.map(j => `<option value="${j[0]}"${j[0] === 'PB' ? ' selected' : ''}>${j[0]} — ${esc(j[1])}</option>`).join('')}</select><small class="muted" style="font-weight:400">mis. UND undangan, ST surat tugas, SK keputusan, PB pemberitahuan. Daftar lengkap di tab Pedoman penomoran.</small></label>
+      <label class="f">Nomor dokumen (ketik manual)<input name="nomor" required placeholder="mis. 075/LSP-UNIMED/UND/X/2026"><small class="muted" style="font-weight:400" id="saranNo"></small></label>
+      <div class="row2"><label class="f">Tanggal<input type="date" name="terbit" value="${HARI_INI}"></label><label class="f">Berlaku sampai (opsional)<input type="date" name="sampai"></label></div>
+      <div class="row2"><label class="f">Penanggung jawab<select name="pemilik"><option>Sekretariat</option><option>Administrasi</option><option>Sertifikasi</option><option>Manajemen Mutu</option><option>Skema</option></select></label><label class="f">Status<select name="status"><option>Berlaku</option><option>Draf</option></select></label></div>
+      <label class="f">Berkas (PDF, DOCX, XLSX, JPG — maks 10 MB)<input type="file" name="berkas" accept=".pdf,.doc,.docx,.xls,.xlsx,.jpg,.jpeg,.png"></label>
+      <label class="f">atau tautan Drive (opsional, bila berkas > 10 MB)<input name="tautan" placeholder="https://drive.google.com/..."></label>
+      <p class="note" id="noPrev"></p><div><button class="btn" type="submit" id="btnSimpanDok">Simpan dokumen</button></div></form>`);
+    const f = back.querySelector('#fD');
+    const saranNo = () => saranSurat((f.kj.value || 'PB').toUpperCase().replace(/[^A-Z]/g, ''), f.terbit.value || HARI_INI);
+    const prev = () => {
+      if (!f.nomor.value) f.nomor.value = saranNo();
+      back.querySelector('#saranNo').textContent = 'Saran urutan berikutnya: ' + saranNo() + ' — boleh diketik ulang sesuai buku agenda.';
+      back.querySelector('#noPrev').textContent = nomorDipakai(f.nomor.value.trim()) ? 'Nomor ini sudah dipakai — ganti dengan urutan lain.' : '';
+    };
+    f.kj.addEventListener('change', () => { f.nomor.value = saranNo(); prev(); });
+    f.terbit.addEventListener('change', () => { f.nomor.value = saranNo(); prev(); });
+    f.nomor.addEventListener('input', prev); prev();
+    f.onsubmit = async (e) => {
+      e.preventDefault(); const k = f.kat.value, no = f.nomor.value.trim(), sr = surat || (f.jenis && f.jenis.value === 'surat');
+      if (!bolehUbahKat(k)) { toast('Kategori ' + k + ' di luar wewenang peran Anda'); return; }
+      if (!no) { toast('Isi nomor dokumen dulu (lihat Pedoman penomoran)'); return; }
+      if (nomorDipakai(no)) { toast('Nomor ' + no + ' sudah dipakai. Ganti dengan nomor lain.'); return; }
+      if (sr) seq.SURAT++; else seq[k] = (seq[k] || 0) + 1;
+      const btn = back.querySelector('#btnSimpanDok'); btn.disabled = true; btn.textContent = 'Menyimpan…';
+      let file_id = '', file_nama = '', file_url = (f.tautan.value || '').trim();
+      try {
+        const fl = await bacaBerkas(f.berkas);
+        if (fl) {
+          try {
+            const up = await api('unggahBerkas', { data: { nama: fl.nama, mime: fl.mime, base64: fl.base64, kat: k } });
+            file_id = up.file_id || ''; file_nama = up.file_nama || fl.nama; file_url = up.file_url || '';
+          } catch (err) { toast(err.message + ' Dokumen tetap dicatat tanpa tautan berkas.'); file_nama = fl.nama; }
+        }
+      } catch (err) { toast(err.message); btn.disabled = false; btn.textContent = 'Simpan dokumen'; return; }
+      const d = { id: DOCS.length + 1, kode: no, kat: k, judul: f.judul.value.trim(), pemilik: f.pemilik.value, terbit: f.terbit.value, sampai: f.sampai.value, status: f.status.value, rev: 1, berkas: file_nama || 'berkas_baru.pdf', file_id, file_url };
+      if (sr) { d.surat = true; d.alur = f.status.value === 'Berlaku' ? 'Disahkan' : 'Draf'; }
+      DOCS.push(d); catat('Mengunggah ' + d.judul);
+      tutupDrawer(); toast('Dokumen tersimpan: ' + d.kode + (file_url ? ' (berkas di Drive)' : ' (demo, tidak permanen)')); if (sr) pergi('keluar'); else pergi('dokumen', k);
+    };
+  }
+
+  login();
+})();
+</script>
+</body>
+</html>
