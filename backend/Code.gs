@@ -247,6 +247,29 @@ var AKSI_KHUSUS = {
       });
       return { dokumen: dok.length, byStatus: byStatus, suratBuka: smBuka, agenda: perAgenda };
     }
+  },
+  // Dasbor cepat ala SIPINTAR (summary+refData): SATU panggilan baca semua tabel
+  // dalam SATU eksekusi server. Frontend lama memanggil 7-8x list() paralel,
+  // tiap panggilan baca ulang sheet Pengguna (auth) + 1 sheet → lambat.
+  // Hasil di-cache 60 detik; dihapus otomatis tiap tambah/ubah/hapus.
+  dasbor: {
+    izin: 'admin',
+    jalankan: function () {
+      var cache = CacheService.getScriptCache();
+      try { var hit = cache.get('dasbor'); if (hit) return JSON.parse(hit); } catch (e) {}
+      var out = {
+        dok: bacaTabel('Dokumen'),
+        rev: bacaTabel('Revisi'),
+        sm: bacaTabel('SuratMasuk'),
+        disp: bacaTabel('Disposisi'),
+        ag: bacaTabel('Agenda'),
+        agB: bacaTabel('AgendaButir'),
+        log: bacaTabel('Log').slice(-60),
+        kop: bacaTabel('Kop')[0] || null
+      };
+      try { cache.put('dasbor', JSON.stringify(out), 60); } catch (e) {}
+      return out;
+    }
   }
 };
 
@@ -866,7 +889,7 @@ function siapkanDrive_() {
   return { url: url, kategori: kat };
 }
 
-function hapusCache(nama) { CacheService.getScriptCache().remove('list:' + nama); }
+function hapusCache(nama) { CacheService.getScriptCache().remove('list:' + nama); try { CacheService.getScriptCache().remove('dasbor'); } catch (e) {} }
 
 /** Jalankan sekali dari editor: membuat/menyesuaikan semua tab dan memicu layar izin Google. */
 function siapkanSheet() {

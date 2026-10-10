@@ -6,6 +6,7 @@
   <title>Arsip Dokumen — LSP UNIMED</title>
   <meta name="robots" content="noindex">
   <link rel="icon" type="image/png" sizes="32x32" href="assets/img/favicon-32.png">
+  <link rel="preconnect" href="https://script.google.com"><link rel="preconnect" href="https://script.googleusercontent.com" crossorigin>
   <link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="arsip.css?v=2">
@@ -115,6 +116,12 @@
   const smDariServer = (r, dispSemua) => ({ _rid: r.id, id: r.id, agenda: r.agenda, tglSurat: tglId(r.tgl_surat), terima: tglId(r.terima), asal: r.asal || '', nomor: r.nomor || '', perihal: r.perihal || '', sifat: r.sifat || 'Biasa', status: r.status || 'Diterima', arsip: String(r.arsip || '').toUpperCase() === 'YA' || r.arsip === true, berkas: r.file_nama || ('Pindaian_' + String(r.agenda || '').replace(/\W+/g, '_') + '.pdf'), file_id: r.file_id || '', file_url: r.file_url || '', disp: (dispSemua || []).filter(x => String(x.surat_id) === String(r.id)).map(x => ({ _rid: x.id, tgl: tglId(x.tgl), ke: String(x.ke || '').split(',').map(s => s.trim()).filter(Boolean), instruksi: x.instruksi || '', catatan: x.catatan || '', batas: tglId(x.batas) })) });
   // muatData: tarik Dokumen+Revisi+SuratMasuk+Disposisi+Agenda+Log dari backend sekali saat shell.
   let DATA_OK = false;
+  async function muatKopDari(baris) {
+    try {
+      const b = baris || null;
+      if (b) { ['l1', 'l2', 'l3', 'l4', 'l5', 'kota', 'jabatan', 'nama', 'nip'].forEach(k => { if (b[k] != null && String(b[k]) !== '') window.KOP[k] = b[k]; }); }
+    } catch (e) {}
+  }
   async function muatKop() {
     try {
       const r = await api('list', { tabel: 'Kop', opsi: { per: 5 } });
@@ -122,8 +129,29 @@
       if (b) { ['l1', 'l2', 'l3', 'l4', 'l5', 'kota', 'jabatan', 'nama', 'nip'].forEach(k => { if (b[k] != null && String(b[k]) !== '') window.KOP[k] = b[k]; }); }
     } catch (e) {}
   }
+  function terapkanDasbor(d) {
+    const dok = d.dok || [], rev = d.rev || [], sm = d.sm || [], disp = d.disp || [], ag = d.ag || [], agB = d.agB || [], lg = d.log || [];
+    muatKopDari(d.kop);
+    DOCS = dok.map(dokDariServer);
+    const revBy = {};
+    rev.forEach(x => { (revBy[x.dokumen_id] = revBy[x.dokumen_id] || []).push({ _rid: x.id, rev: +x.rev || 1, tanggal: tglId(x.tanggal), oleh: x.oleh || '', catatan: x.catatan || '', file_id: x.file_id || '', file_nama: x.file_nama || '', file_url: x.file_url || '' }); });
+    DOCS.forEach(x => { const rr = (revBy[x._rid] || revBy[x.kode] || []).sort((a, b) => a.rev - b.rev); if (rr.length) x.riwayat = rr; });
+    SM = sm.map(s => smDariServer(s, disp));
+    const butirBy = {};
+    agB.forEach(x => { (butirBy[x.agenda_id] = butirBy[x.agenda_id] || []).push([x.nama || '', x.status || 'warn', x.ket || '', x.id]); });
+    AGENDA = ag.map(a => ({ _rid: a.id, id: a.id, nama: a.nama || '', tanggal: tglId(a.tanggal), tempat: a.tempat || '', catatan: a.catatan || '', butir: butirBy[a.id] || [] }));
+    if (lg.length) { LOG.length = 0; lg.slice(0, 60).forEach(x => LOG.push([String(x.waktu || x.dibuat || ''), String(x.siapa || ''), String(x.aksi || '')])); }
+    DOCS.forEach(x => { const m = String(x.kode || '').match(/^(\d+)/); if (m) seq.SURAT = Math.max(seq.SURAT || 0, +m[1]); });
+    SM.forEach(s => { const m = String(s.agenda || '').match(/^SM-(\d+)/); if (m) seq.SM = Math.max(seq.SM || 0, +m[1]); });
+    DATA_OK = true;
+  }
   async function muatData() {
     if (DATA_OK) { await muatKop(); return true; }
+    // Jalur cepat ala SIPINTAR: 1 panggilan dasbor utk semua tabel (auth 1x di server).
+    try {
+      const d = await api('dasbor');
+      if (d && ('dok' in d || 'sm' in d || 'ag' in d)) { terapkanDasbor(d); return DATA_OK; }
+    } catch (e) { /* backend lama: lanjut jalur lama */ }
     const ambil = async (tabel) => { try { const r = await api('list', { tabel, opsi: { per: 200 } }); return (r && r.baris) || []; } catch (e) { return []; } };
     const [dok, rev, sm, disp, ag, agB, lg] = await Promise.all([ambil('Dokumen'), ambil('Revisi'), ambil('SuratMasuk'), ambil('Disposisi'), ambil('Agenda'), ambil('AgendaButir'), ambil('Log')]);
     await muatKop();
