@@ -225,16 +225,16 @@
 
   /* ---------- Gaya kertas (pratinjau & cetak) ---------- */
   const DOC_CSS = `
-  .kertas{box-sizing:border-box;width:210mm;min-height:297mm;padding:12mm 15mm 20mm 20mm;background:#fff;color:#000;font-family:"Times New Roman",Times,serif;font-size:12pt;line-height:1.45;font-style:normal;text-align:left}
+  .kertas{box-sizing:border-box;width:210mm;min-height:297mm;padding:12mm 17.5mm 20mm 17.5mm;background:#fff;color:#000;font-family:"Times New Roman",Times,serif;font-size:12pt;line-height:1.45;font-style:normal;text-align:left}
   .kertas *{color:#000!important;font-style:normal!important}
   .kertas table{font-size:inherit;width:auto}.kertas th,.kertas td{border:0;padding:0;background:none;font-size:inherit;color:#000;white-space:normal}.kertas tbody tr{cursor:default}.kertas tbody tr:hover{background:none}
   .kertas p{margin:0 0 8pt}.kertas .j{text-align:justify}.kertas .c{text-align:center}.kertas .r{text-align:right;white-space:nowrap}
   .kertas .u{text-decoration:underline}.kertas h4{font-size:12pt;margin:12pt 0 4pt}
   .kertas ol{margin:0 0 8pt;padding-left:18pt}.kertas li{margin:0 0 2pt;text-align:justify}
-  .kertas .kop{display:grid;grid-template-columns:24mm 1fr 36mm;gap:3mm;align-items:center;text-align:center;border-bottom:1.5pt solid #000;padding-bottom:1.5mm;margin-bottom:5mm}
+  .kertas .kop{display:grid;grid-template-columns:26mm 1fr 26mm;gap:3mm;align-items:center;text-align:center;border-bottom:1.5pt solid #000;padding-bottom:1.5mm;margin-bottom:5mm}
   .kertas .kop>div{min-width:0}
-  .kertas .kop img{width:22mm;height:22mm;object-fit:contain}
-  .kertas .kop img.kanan{width:34mm;height:17mm}
+  .kertas .kop img{width:26mm;height:20mm;object-fit:contain;justify-self:center}
+  .kertas .kop img.kanan{width:26mm;height:20mm}
   .kertas .kop .l1{font-size:12.5pt;font-weight:bold;line-height:1.22;white-space:normal}.kertas .kop .l2{font-size:12.5pt;font-weight:bold;line-height:1.22;white-space:normal}.kertas .kop .l3{font-size:10pt;font-weight:bold;line-height:1.3;white-space:normal}.kertas .kop .l4{font-size:8.5pt;line-height:1.25;white-space:normal}
   .kertas table{border-collapse:collapse}
   .kertas .meta{margin:0 0 8pt}.kertas .meta td{padding:0 4pt 1pt 0;vertical-align:top}.kertas .meta td:first-child{white-space:nowrap;min-width:28mm}.kertas .meta td:nth-child(2){width:8pt}
@@ -254,7 +254,7 @@
   .kertas .sp{height:22mm}
   .kertas .tembusan{font-size:11pt;margin-top:10pt}.kertas .tembusan ol{padding-left:16pt}
   .kertas .lamp{margin:0 0 12pt auto;font-size:11pt}
-  .kertas .pb{break-before:page;height:0;border-top:1px dashed #9aa;margin:14mm -15mm 10mm -20mm}
+  .kertas .pb{break-before:page;height:0;border-top:1px dashed #9aa;margin:14mm -17.5mm 10mm -17.5mm}
   @media print{.kertas .pb{border:0;margin:0}}`;
   const st = document.createElement('style'); st.textContent = DOC_CSS; document.head.appendChild(st);
 
@@ -266,7 +266,7 @@
     const w = fr.contentWindow;
     w.document.open();
     w.document.write(`<!doctype html><html lang="id"><head><meta charset="utf-8"><title>${esc(judul || 'Dokumen')}</title><style>${DOC_CSS}
-      @page{size:A4;margin:12mm 15mm 18mm 20mm}html,body{margin:0;background:#fff}
+      @page{size:A4;margin:12mm 17.5mm 18mm 17.5mm}html,body{margin:0;background:#fff}
       @media print{.kertas{width:auto;min-height:0;padding:0}}</style></head><body><div class="kertas">${html}</div></body></html>`);
     w.document.close();
     const go = () => { try { w.focus(); w.print(); } catch (e) { /* abaikan */ } setTimeout(() => fr.remove(), 60000); };
