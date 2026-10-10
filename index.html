@@ -157,6 +157,11 @@
   const ALUR = ['Draf', 'Diajukan', 'Disahkan', 'Terkirim'];
   const alurB = { Draf: 'draft', Diajukan: 'warn', Disahkan: 'ok', Terkirim: 'info' };
   const smB = { Diterima: 'warn', Didisposisi: 'info', Selesai: 'ok' };
+  // Cari toleran: id backend kini string UUID, pemanggil lama pakai +id (angka).
+  // Bandingkan sebagai string + fallback ke _rid/kode/agenda agar popup selalu ketemu.
+  const cariDok = (id) => DOCS.find(x => String(x.id) === String(id) || (x._rid && String(x._rid) === String(id)) || (x.kode && String(x.kode) === String(id)));
+  const cariSM = (id) => SM.find(x => String(x.id) === String(id) || (x._rid && String(x._rid) === String(id)) || (x.agenda && String(x.agenda) === String(id)));
+  const cariAgenda = (id) => AGENDA.find(x => String(x.id) === String(id) || (x._rid && String(x._rid) === String(id)));
   const LOG = [];
   const catat = (m, siapa) => { LOG.unshift([jam(), siapa || PERAN_AKTIF, m]); try { api('tambah', { tabel: 'Log', data: { aksi: m } }).catch(() => {}); } catch (e) {} };
   const smKeServer = (s) => ({ agenda: s.agenda, tgl_surat: s.tglSurat || '', terima: s.terima || '', asal: s.asal || '', nomor: s.nomor || '', perihal: s.perihal || '', sifat: s.sifat || 'Biasa', status: s.status || 'Diterima', file_id: s.file_id || '', file_nama: s.berkas || '', file_url: s.file_url || '' });
@@ -334,8 +339,8 @@
         <div class="panel"><h2>Aktivitas terbaru</h2><ul class="list">${LOG.slice(0, 6).map(l => `<li><span>${esc(l[2])}<br><span class="muted" style="font-size:.82rem">${esc(l[1])}</span></span><span class="muted" style="font-size:.82rem;white-space:nowrap">${esc(l[0].slice(5, 10).split('-').reverse().join('/'))}</span></li>`).join('')}</ul></div>
       </div>
       <div class="panel" style="margin-top:14px"><h2>Per kategori</h2><div class="grid g4">${KAT.filter(k => bolehLihatKat(k[0])).map(k => `<a href="#" data-go="dokumen" data-k="${k[0]}" class="katbox"><b style="font-size:1.4rem">${DOCS.filter(d => !d.arsip && d.kat === k[0]).length}</b><div style="font-weight:700">${esc(k[1])}</div><div class="muted" style="font-size:.8rem">${esc(k[2])}</div></a>`).join('')}</div></div>`;
-    v.querySelectorAll('[data-sm]').forEach(li => li.onclick = () => detailMasuk(+li.dataset.sm));
-    v.querySelectorAll('li[data-id]').forEach(li => li.onclick = () => detail(+li.dataset.id));
+    v.querySelectorAll('[data-sm]').forEach(li => li.onclick = () => detailMasuk(li.dataset.sm));
+    v.querySelectorAll('li[data-id]').forEach(li => li.onclick = () => detail(li.dataset.id));
   }
 
   function vDokumen(v, T) {
@@ -354,7 +359,7 @@
     };
     ikatToolbar(f, draw);
     document.getElementById('ex').onclick = () => unduhCSV('arsip-dokumen' + (FK ? '-' + FK : ''), ['Nomor', 'Judul', 'Kategori', 'Penanggung jawab', 'Terbit', 'Berlaku sampai', 'Revisi', 'Status'], daftar().map(d => [d.kode, d.judul, katNama(d.kat), d.pemilik, d.terbit, d.sampai, d.rev, status(d)[0]]));
-    document.getElementById('tb').onclick = (e) => { const tr = e.target.closest('tr[data-id]'); if (tr) detail(+tr.dataset.id); };
+    document.getElementById('tb').onclick = (e) => { const tr = e.target.closest('tr[data-id]'); if (tr) detail(tr.dataset.id); };
     draw();
   }
 
@@ -382,7 +387,7 @@
     document.getElementById('fd').onchange = (e) => { f.dari = e.target.value; f.pg = 1; draw(); };
     document.getElementById('fe').onchange = (e) => { f.sampai = e.target.value; f.pg = 1; draw(); };
     document.getElementById('ex').onclick = () => unduhCSV('dokumen-arsip', ['Nomor', 'Judul', 'Kategori', 'Penanggung jawab', 'Terbit', 'Berlaku sampai', 'Revisi', 'Status'], daftar().map(d => [d.kode, d.judul, katNama(d.kat), d.pemilik, d.terbit, d.sampai, d.rev, status(d)[0]]));
-    document.getElementById('tb').onclick = (e) => { const tr = e.target.closest('tr[data-id]'); if (tr) detail(+tr.dataset.id); };
+    document.getElementById('tb').onclick = (e) => { const tr = e.target.closest('tr[data-id]'); if (tr) detail(tr.dataset.id); };
     draw();
   }
 
@@ -391,7 +396,7 @@
     const list = DOCS.filter(d => bolehLihatKat(d.kat) && (['warn', 'bad'].includes(status(d)[1]) || d.status === 'Draf')).sort((a, b) => (a.sampai || '9999').localeCompare(b.sampai || '9999'));
     v.innerHTML = `<p class="muted lead">Dokumen yang kedaluwarsa, berakhir dalam 60 hari, atau masih draf. Pengingat juga dikirim ke email penanggung jawab setiap Senin.</p>
       <div class="panel"><ul class="list">${list.map(d => { const s = status(d); const h = d.sampai ? hari(d.sampai) : null; return `<li data-id="${d.id}" style="cursor:pointer"><span><b>${esc(d.judul)}</b><br><span class="muted" style="font-size:.84rem">${esc(d.kode)} · ${esc(d.pemilik)}</span></span><span style="text-align:right"><span class="badge ${s[1]}">${s[0]}</span><br><span class="muted" style="font-size:.8rem">${h === null ? 'Perlu pengesahan' : h < 0 ? 'Lewat ' + (-h) + ' hari' : h + ' hari lagi'}</span></span></li>`; }).join('')}</ul></div>`;
-    v.querySelectorAll('li[data-id]').forEach(li => li.onclick = () => detail(+li.dataset.id));
+    v.querySelectorAll('li[data-id]').forEach(li => li.onclick = () => detail(li.dataset.id));
   }
 
   function vAgenda(v, T) {
@@ -409,17 +414,17 @@
       back.querySelector('#fAg').onsubmit = async (e) => { e.preventDefault(); const g = new FormData(e.target); const baru = { id: AGENDA_ID++, nama: (g.get('nama') || '').trim(), tanggal: g.get('tanggal'), tempat: (g.get('tempat') || '').trim(), catatan: (g.get('catatan') || '').trim(), butir: [] }; try { const b = await api('tambah', { tabel: 'Agenda', data: { nama: baru.nama, tanggal: baru.tanggal, tempat: baru.tempat, catatan: baru.catatan } }); if (b && b.id) { baru._rid = b.id; baru.id = b.id; } } catch (err) { toast(err.message + ' — tersimpan di layar saja'); } AGENDA.push(baru); catat('Menambah agenda ' + g.get('nama')); tutupDrawer(); toast('Agenda tersimpan'); render(); };
     };
     v.querySelectorAll('[data-tambah]').forEach(b => b.onclick = () => {
-      const a = AGENDA.find(x => x.id === +b.dataset.tambah);
+      const a = cariAgenda(b.dataset.tambah); if (!a) { toast('Agenda tidak ditemukan.'); return; }
       const back = drawer(`<h2>Tambah butir — ${esc(a.nama)}</h2><form class="form" id="fB"><label class="f">Butir dokumen<input name="nama" required placeholder="mis. SK penugasan panitia"></label><label class="f">Status<select name="st"><option value="warn">Perlu dilengkapi</option><option value="ok">Siap</option><option value="bad">Mendesak</option></select></label><label class="f">Keterangan<input name="ket"></label><div><button class="btn" type="submit">Simpan butir</button></div></form>`);
       back.querySelector('#fB').onsubmit = async (e) => { e.preventDefault(); const g = new FormData(e.target); const item = [(g.get('nama') || '').trim(), g.get('st'), (g.get('ket') || '').trim()]; a.butir.push(item); try { if (a._rid) { const b = await api('tambah', { tabel: 'AgendaButir', data: { agenda_id: String(a._rid), nama: item[0], status: item[1], ket: item[2] } }); if (b && b.id) item.push(b.id); } } catch (err) { toast(err.message + ' — butir hanya di layar'); } catat('Menambah butir agenda ' + a.nama); tutupDrawer(); toast('Butir tersimpan'); render(); };
     });
-    v.querySelectorAll('[data-hapus]').forEach(b => b.onclick = async () => { const a = AGENDA.find(x => x.id === +b.dataset.hapus); if (!confirm('Hapus agenda "' + a.nama + '"?')) return; if (a._rid) { try { await api('hapus', { tabel: 'Agenda', id: a._rid }); } catch (err) { toast(err.message); return; } } AGENDA = AGENDA.filter(x => x.id !== a.id); catat('Menghapus agenda ' + a.nama); render(); });
+    v.querySelectorAll('[data-hapus]').forEach(b => b.onclick = async () => { const a = cariAgenda(b.dataset.hapus); if (!a) { toast('Agenda tidak ditemukan.'); return; } if (!confirm('Hapus agenda "' + a.nama + '"?')) return; if (a._rid) { try { await api('hapus', { tabel: 'Agenda', id: a._rid }); } catch (err) { toast(err.message); return; } } AGENDA = AGENDA.filter(x => x.id !== a.id); catat('Menghapus agenda ' + a.nama); render(); });
     v.querySelectorAll('[data-ubah]').forEach(b => b.onclick = () => {
-      const [aid, bi] = b.dataset.ubah.split(':').map(Number); const a = AGENDA.find(x => x.id === aid); const it = a.butir[bi];
+      const [aid, bi] = b.dataset.ubah.split(':'); const a = cariAgenda(aid); if (!a) { toast('Agenda tidak ditemukan.'); return; } const bi2 = +bi; const it = a.butir[bi2];
       const back = drawer(`<h2>Ubah butir — ${esc(a.nama)}</h2><form class="form" id="fU"><label class="f">Butir dokumen<input name="nama" required value="${esc(it[0])}"></label><label class="f">Status<select name="st"><option value="ok"${it[1] === 'ok' ? ' selected' : ''}>Siap</option><option value="warn"${it[1] === 'warn' ? ' selected' : ''}>Perlu dilengkapi</option><option value="bad"${it[1] === 'bad' ? ' selected' : ''}>Mendesak</option></select></label><label class="f">Keterangan<input name="ket" value="${esc(it[2] || '')}"></label><div><button class="btn" type="submit">Simpan perubahan</button></div></form>`);
-      back.querySelector('#fU').onsubmit = async (e) => { e.preventDefault(); const g = new FormData(e.target); a.butir[bi] = [(g.get('nama') || '').trim(), g.get('st'), (g.get('ket') || '').trim(), it[3]]; try { if (it[3]) await api('ubah', { tabel: 'AgendaButir', id: it[3], data: { agenda_id: String(a._rid || ''), nama: a.butir[bi][0], status: a.butir[bi][1], ket: a.butir[bi][2] } }); } catch (err) { toast(err.message); } catat('Mengubah butir agenda ' + a.nama + ': ' + g.get('nama')); tutupDrawer(); toast('Butir diperbarui'); render(); };
+      back.querySelector('#fU').onsubmit = async (e) => { e.preventDefault(); const g = new FormData(e.target); a.butir[bi2] = [(g.get('nama') || '').trim(), g.get('st'), (g.get('ket') || '').trim(), it[3]]; try { if (it[3]) await api('ubah', { tabel: 'AgendaButir', id: it[3], data: { agenda_id: String(a._rid || ''), nama: a.butir[bi2][0], status: a.butir[bi2][1], ket: a.butir[bi2][2] } }); } catch (err) { toast(err.message); } catat('Mengubah butir agenda ' + a.nama + ': ' + g.get('nama')); tutupDrawer(); toast('Butir diperbarui'); render(); };
     });
-    v.querySelectorAll('[data-buang]').forEach(b => b.onclick = async () => { const [aid, bi] = b.dataset.buang.split(':').map(Number); const a = AGENDA.find(x => x.id === aid); const it = a.butir[bi]; if (!confirm('Hapus butir "' + it[0] + '"?')) return; if (it[3]) { try { await api('hapus', { tabel: 'AgendaButir', id: it[3] }); } catch (err) { toast(err.message); return; } } a.butir.splice(bi, 1); catat('Menghapus butir agenda ' + a.nama + ': ' + it[0]); render(); });
+    v.querySelectorAll('[data-buang]').forEach(b => b.onclick = async () => { const [aid, bi] = b.dataset.buang.split(':'); const a = cariAgenda(aid); if (!a) { toast('Agenda tidak ditemukan.'); return; } const bi2 = +bi; const it = a.butir[bi2]; if (!confirm('Hapus butir "' + it[0] + '"?')) return; if (it[3]) { try { await api('hapus', { tabel: 'AgendaButir', id: it[3] }); } catch (err) { toast(err.message); return; } } a.butir.splice(bi2, 1); catat('Menghapus butir agenda ' + a.nama + ': ' + it[0]); render(); });
   }
 
   /* ---------- Surat masuk ---------- */
@@ -440,12 +445,12 @@
     document.getElementById('ex').onclick = () => unduhCSV('surat-masuk', ['No. agenda', 'Tanggal surat', 'Tanggal diterima', 'Pengirim', 'Nomor surat', 'Perihal', 'Sifat', 'Status', 'Disposisi ke'], daftar().map(s => [s.agenda, s.tglSurat, s.terima, s.asal, s.nomor, s.perihal, s.sifat, s.status, s.disp.map(x => x.ke.join(', ')).join(' | ')]));
     const btnSM = document.getElementById('addSM');
     if (btnSM) btnSM.onclick = () => { if (!bolehCatatMasuk()) { toast('Hanya Admin, Sekretariat, atau Ketua yang dapat mencatat surat masuk'); return; } formMasuk(); };
-    document.getElementById('tb').onclick = (e) => { const tr = e.target.closest('tr[data-sm]'); if (tr) detailMasuk(+tr.dataset.sm); };
+    document.getElementById('tb').onclick = (e) => { const tr = e.target.closest('tr[data-sm]'); if (tr) detailMasuk(tr.dataset.sm); };
     draw();
   }
 
   function detailMasuk(id) {
-    const s = SM.find(x => x.id === id);
+    const s = cariSM(id); if (!s) { toast('Data tidak ditemukan — muat ulang halaman.'); return; }
     const bsaya = bagianSaya(), tugasIni = bsaya && s.disp.some(x => x.ke.includes(bsaya));
     const bolehDisp = ['Ketua', 'Admin', 'Sekretariat'].includes(kunciPeran());
     const back = drawer(`<div class="code" style="color:var(--red)">${esc(s.agenda)}</div><h2 style="font-size:1.25rem;margin-top:6px">${esc(s.perihal)}</h2>
@@ -524,7 +529,7 @@
     ikatToolbar(f, draw);
     document.getElementById('ex').onclick = () => unduhCSV('surat-keluar', ['Nomor', 'Perihal', 'Tanggal', 'Kategori arsip', 'Status'], daftar().map(d => [d.kode, d.judul, d.terbit, katNama(d.kat), d.alur]));
     document.getElementById('addSK').onclick = () => pilih(true);
-    document.getElementById('tb').onclick = (e) => { const tr = e.target.closest('tr[data-id]'); if (tr) detail(+tr.dataset.id); };
+    document.getElementById('tb').onclick = (e) => { const tr = e.target.closest('tr[data-id]'); if (tr) detail(tr.dataset.id); };
     draw();
   }
 
@@ -675,7 +680,7 @@
   /* ---------- Detail dokumen / surat keluar ---------- */
   function detail(id) {
     tutupDrawer();
-    const d = DOCS.find(x => x.id === id), s = status(d);
+    const d = cariDok(id); if (!d) { toast('Dokumen tidak ditemukan — muat ulang halaman.'); return; } const s = status(d);
     if (!bolehLihatKat(d.kat)) { drawer('<h2>Akses terbatas</h2><p class="muted">Dokumen kategori ini tidak dapat dibuka oleh peran Anda.</p>'); return; }
     const bisaUbah = bolehUbahKat(d.kat);
     d.riwayat = d.riwayat || [];
@@ -733,7 +738,7 @@
 
   /* ---------- Ubah data dokumen (judul, kategori, penanggung jawab, tanggal, tautan) ---------- */
   function formEditDok(id) {
-    const d = DOCS.find(x => x.id === id);
+    const d = cariDok(id); if (!d) { toast('Dokumen tidak ditemukan.'); return; }
     if (!bolehUbahKat(d.kat)) { toast('Di luar kategori Anda'); return; }
     const katBoleh = KAT.filter(k => bolehUbahKat(k[0]));
     const back = drawer(`<h2>Ubah data dokumen</h2><p class="muted" style="margin-top:-6px">${esc(d.kode)}</p>
@@ -771,7 +776,7 @@
 
   /* ---------- Unggah revisi: berkas baru -> Revisi berikutnya, riwayat lama tetap ---------- */
   function formRevisi(id) {
-    const d = DOCS.find(x => x.id === id);
+    const d = cariDok(id); if (!d) { toast('Dokumen tidak ditemukan.'); return; }
     if (!bolehUbahKat(d.kat)) { toast('Di luar kategori Anda'); return; }
     const back = drawer(`<h2>Unggah revisi ${d.rev + 1}</h2><p class="muted" style="margin-top:-6px">${esc(d.kode)} — ${esc(d.judul)}</p>
       <p class="muted" style="font-size:.86rem">Revisi menaikkan nomor revisi (kini Rev. ${d.rev}) tanpa menghapus riwayat. Berkas tersimpan ke folder Drive kategori ${esc(d.kat)}.</p>
@@ -838,14 +843,14 @@
     nomorTerakhir(n) { return DOCS.filter(d => d.surat).map(d => d.kode).sort((a, b) => b.localeCompare(a)).slice(0, n || 5); },
     nomorDipakai(no) { return nomorDipakai(no); },
     simpan(o) {
-      const katTujuan = o.kat || (o.id && (DOCS.find(x => x.id === o.id) || {}).kat);
+      const katTujuan = o.kat || (o.id && (cariDok(o.id) || {}).kat);
       if (katTujuan && !bolehUbahKat(katTujuan)) { toast('Kategori ' + katTujuan + ' di luar wewenang peran Anda'); return; }
       const stt = o.surat ? (o.alur === 'Disahkan' ? 'Berlaku' : 'Draf') : (o.alur === 'Berlaku' ? 'Berlaku' : 'Draf');
       (async () => {
       let d;
       try {
         if (o.id) {
-          d = DOCS.find(x => x.id === o.id);
+          d = cariDok(o.id);
           Object.assign(d, { judul: o.judul, kat: o.kat, tpl: o.tpl, terbit: o.tanggal, status: stt }); if (d.surat) d.alur = o.alur === 'Diajukan' ? 'Diajukan' : 'Draf';
           if (d._rid) { try { await api('ubah', { tabel: 'Dokumen', id: d._rid, data: dokKeServer(d) }); } catch (err) { toast(err.message + ' — perubahan hanya di layar'); } }
           catat((d.alur === 'Diajukan' ? 'Mengajukan pengesahan ' : 'Memperbarui draf ') + d.kode);
