@@ -41,7 +41,7 @@
     nip: 'NIP. 19xxxxxxxxxxxxxxxx'
   };
   window.KOP = KOP;
-  const img = (f) => new URL('../assets/img/' + f, location.href).href;
+  const img = (f) => new URL('assets/img/' + f, location.href).href;
   const kop = () => `<div class="kop"><img class="kiri" src="${img('logo-lsp.png')}" alt=""><div><div class="l1">${esc(KOP.l1)}</div><div class="l2">${esc(KOP.l2)}</div><div class="l3">${esc(KOP.l3)}</div><div class="l4">${esc(KOP.l4)}</div><div class="l4">${esc(KOP.l5)}</div></div><img class="kanan" src="${img('logo-bnsp.png')}" alt=""></div>`;
   const ttd = (d, o) => { const kepala = (o && o.tanpaTanggal) ? '' : (o && o.atas ? esc(o.atas) + '<br>' : `${esc(KOP.kota)}, ${tglPanjang(d.tanggal)}<br>`); return `<div class="ttd"><div>${kepala}${esc(d.ttdJabatan)},<div class="sp"></div><b class="u">${esc(d.ttdNama)}</b><br>${esc(d.ttdNip)}</div></div>`; };
   const ttd2 = (a, b) => `<div class="ttd2">${[a, b].map(p => `<div>${esc(p[0])},<div class="sp"></div><b class="u">${esc(p[1])}</b>${p[2] ? '<br>' + esc(p[2]) : ''}</div>`).join('')}</div>`;
