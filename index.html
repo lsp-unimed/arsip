@@ -119,14 +119,14 @@
   async function muatKopDari(baris) {
     try {
       const b = baris || null;
-      if (b) { ['l1', 'l2', 'l3', 'l4', 'l5', 'kota', 'jabatan', 'nama', 'nip'].forEach(k => { if (b[k] != null && String(b[k]) !== '') window.KOP[k] = b[k]; }); }
+      if (b) { if (b.id) { try { window.__kopId = b.id; } catch (e) {} } ['l1', 'l2', 'l3', 'l4', 'l5', 'kota', 'jabatan', 'nama', 'nip'].forEach(k => { if (b[k] != null && String(b[k]) !== '') window.KOP[k] = b[k]; }); }
     } catch (e) {}
   }
   async function muatKop() {
     try {
       const r = await api('list', { tabel: 'Kop', opsi: { per: 5 } });
       const b = (r && r.baris && r.baris[0]) || null;
-      if (b) { ['l1', 'l2', 'l3', 'l4', 'l5', 'kota', 'jabatan', 'nama', 'nip'].forEach(k => { if (b[k] != null && String(b[k]) !== '') window.KOP[k] = b[k]; }); }
+      if (b) { if (b.id) { try { window.__kopId = b.id; } catch (e) {} } ['l1', 'l2', 'l3', 'l4', 'l5', 'kota', 'jabatan', 'nama', 'nip'].forEach(k => { if (b[k] != null && String(b[k]) !== '') window.KOP[k] = b[k]; }); }
     } catch (e) {}
   }
   function terapkanDasbor(d) {
@@ -193,8 +193,10 @@
   const cariAgenda = (id) => AGENDA.find(x => String(x.id) === String(id) || (x._rid && String(x._rid) === String(id)));
   const LOG = [];
   const catat = (m, siapa) => { LOG.unshift([jam(), siapa || PERAN_AKTIF, m]); try { api('tambah', { tabel: 'Log', data: { aksi: m } }).catch(() => {}); } catch (e) {} };
+  // Simpan latar: UI diperbarui dulu, server menyusul diam-diam (tanpa await).
+  const latar = (p, gagal) => { try { Promise.resolve(p).catch(e => toast(((e && e.message) || gagal || 'Gagal menyimpan ke server') + ' — tersimpan di layar')); } catch (e) {} };
   const smKeServer = (s) => ({ agenda: s.agenda, tgl_surat: s.tglSurat || '', terima: s.terima || '', asal: s.asal || '', nomor: s.nomor || '', perihal: s.perihal || '', sifat: s.sifat || 'Biasa', status: s.status || 'Diterima', arsip: s.arsip ? 'YA' : '', file_id: s.file_id || '', file_nama: s.berkas || '', file_url: s.file_url || '' });
-  const simpanDokBackend = async (d) => { if (d && d._rid) { try { await api('ubah', { tabel: 'Dokumen', id: d._rid, data: dokKeServer(d) }); } catch (err) { toast(err.message + ' — perubahan hanya di layar'); } } };
+  const simpanDokBackend = (d) => { if (d && d._rid) latar(api('ubah', { tabel: 'Dokumen', id: d._rid, data: dokKeServer(d) }), 'Perubahan dokumen'); };
 
   /* ---------- Peran & hak akses (demo frontend; versi akhir disaring di backend) ----------
      Ketua/Admin/Sekretariat: semua kategori. Bidang & Administrasi: ubah hanya
@@ -450,20 +452,20 @@
         <div class="acts"><button class="btn ghost" data-tambah="${a.id}" type="button">+ Tambah butir</button><button class="btn ghost" data-hapus="${a.id}" type="button">Hapus agenda</button></div></div>`; }).join('') || '<div class="panel muted">Belum ada agenda.</div>'}`;
     document.getElementById('addAg').onclick = () => {
       const back = drawer(`<h2>Tambah agenda</h2><form class="form" id="fAg"><label class="f">Nama agenda<input name="nama" required placeholder="mis. Surveilans BNSP 2027"></label><div class="row2"><label class="f">Tanggal<input type="date" name="tanggal" required></label><label class="f">Tempat<input name="tempat"></label></div><label class="f">Catatan<textarea name="catatan" rows="2"></textarea></label><div><button class="btn" type="submit">Simpan agenda</button></div></form>`);
-      back.querySelector('#fAg').onsubmit = async (e) => { e.preventDefault(); const g = new FormData(e.target); const baru = { id: AGENDA_ID++, nama: (g.get('nama') || '').trim(), tanggal: g.get('tanggal'), tempat: (g.get('tempat') || '').trim(), catatan: (g.get('catatan') || '').trim(), butir: [] }; try { const b = await api('tambah', { tabel: 'Agenda', data: { nama: baru.nama, tanggal: baru.tanggal, tempat: baru.tempat, catatan: baru.catatan } }); if (b && b.id) { baru._rid = b.id; baru.id = b.id; } } catch (err) { toast(err.message + ' — tersimpan di layar saja'); } AGENDA.push(baru); catat('Menambah agenda ' + g.get('nama')); tutupDrawer(); toast('Agenda tersimpan'); render(); };
+      back.querySelector('#fAg').onsubmit = (e) => { e.preventDefault(); const g = new FormData(e.target); const baru = { id: AGENDA_ID++, nama: (g.get('nama') || '').trim(), tanggal: g.get('tanggal'), tempat: (g.get('tempat') || '').trim(), catatan: (g.get('catatan') || '').trim(), butir: [] }; AGENDA.push(baru); catat('Menambah agenda ' + g.get('nama')); tutupDrawer(); toast('Agenda tersimpan'); render(); latar(api('tambah', { tabel: 'Agenda', data: { nama: baru.nama, tanggal: baru.tanggal, tempat: baru.tempat, catatan: baru.catatan } }).then(b => { if (b && b.id) { baru._rid = b.id; baru.id = b.id; } }), 'Tambah agenda'); };
     };
     v.querySelectorAll('[data-tambah]').forEach(b => b.onclick = () => {
       const a = cariAgenda(b.dataset.tambah); if (!a) { toast('Agenda tidak ditemukan.'); return; }
       const back = drawer(`<h2>Tambah butir — ${esc(a.nama)}</h2><form class="form" id="fB"><label class="f">Butir dokumen<input name="nama" required placeholder="mis. SK penugasan panitia"></label><label class="f">Status<select name="st"><option value="warn">Perlu dilengkapi</option><option value="ok">Siap</option><option value="bad">Mendesak</option></select></label><label class="f">Keterangan<input name="ket"></label><div><button class="btn" type="submit">Simpan butir</button></div></form>`);
-      back.querySelector('#fB').onsubmit = async (e) => { e.preventDefault(); const g = new FormData(e.target); const item = [(g.get('nama') || '').trim(), g.get('st'), (g.get('ket') || '').trim()]; a.butir.push(item); try { if (a._rid) { const b = await api('tambah', { tabel: 'AgendaButir', data: { agenda_id: String(a._rid), nama: item[0], status: item[1], ket: item[2] } }); if (b && b.id) item.push(b.id); } } catch (err) { toast(err.message + ' — butir hanya di layar'); } catat('Menambah butir agenda ' + a.nama); tutupDrawer(); toast('Butir tersimpan'); render(); };
+      back.querySelector('#fB').onsubmit = (e) => { e.preventDefault(); const g = new FormData(e.target); const item = [(g.get('nama') || '').trim(), g.get('st'), (g.get('ket') || '').trim()]; a.butir.push(item); catat('Menambah butir agenda ' + a.nama); tutupDrawer(); toast('Butir tersimpan'); render(); if (a._rid) latar(api('tambah', { tabel: 'AgendaButir', data: { agenda_id: String(a._rid), nama: item[0], status: item[1], ket: item[2] } }).then(b => { if (b && b.id) item.push(b.id); }), 'Tambah butir'); };
     });
-    v.querySelectorAll('[data-hapus]').forEach(b => b.onclick = async () => { const a = cariAgenda(b.dataset.hapus); if (!a) { toast('Agenda tidak ditemukan.'); return; } if (!confirm('Hapus agenda "' + a.nama + '"?')) return; if (a._rid) { try { await api('hapus', { tabel: 'Agenda', id: a._rid }); } catch (err) { toast(err.message); return; } } AGENDA = AGENDA.filter(x => x.id !== a.id); catat('Menghapus agenda ' + a.nama); render(); });
+    v.querySelectorAll('[data-hapus]').forEach(b => b.onclick = () => { const a = cariAgenda(b.dataset.hapus); if (!a) { toast('Agenda tidak ditemukan.'); return; } if (!confirm('Hapus agenda "' + a.nama + '"?')) return; AGENDA = AGENDA.filter(x => x.id !== a.id); catat('Menghapus agenda ' + a.nama); render(); toast('Dihapus: ' + a.nama); if (a._rid) latar(api('hapus', { tabel: 'Agenda', id: a._rid }), 'Hapus agenda'); });
     v.querySelectorAll('[data-ubah]').forEach(b => b.onclick = () => {
       const [aid, bi] = b.dataset.ubah.split(':'); const a = cariAgenda(aid); if (!a) { toast('Agenda tidak ditemukan.'); return; } const bi2 = +bi; const it = a.butir[bi2];
       const back = drawer(`<h2>Ubah butir — ${esc(a.nama)}</h2><form class="form" id="fU"><label class="f">Butir dokumen<input name="nama" required value="${esc(it[0])}"></label><label class="f">Status<select name="st"><option value="ok"${it[1] === 'ok' ? ' selected' : ''}>Siap</option><option value="warn"${it[1] === 'warn' ? ' selected' : ''}>Perlu dilengkapi</option><option value="bad"${it[1] === 'bad' ? ' selected' : ''}>Mendesak</option></select></label><label class="f">Keterangan<input name="ket" value="${esc(it[2] || '')}"></label><div><button class="btn" type="submit">Simpan perubahan</button></div></form>`);
-      back.querySelector('#fU').onsubmit = async (e) => { e.preventDefault(); const g = new FormData(e.target); a.butir[bi2] = [(g.get('nama') || '').trim(), g.get('st'), (g.get('ket') || '').trim(), it[3]]; try { if (it[3]) await api('ubah', { tabel: 'AgendaButir', id: it[3], data: { agenda_id: String(a._rid || ''), nama: a.butir[bi2][0], status: a.butir[bi2][1], ket: a.butir[bi2][2] } }); } catch (err) { toast(err.message); } catat('Mengubah butir agenda ' + a.nama + ': ' + g.get('nama')); tutupDrawer(); toast('Butir diperbarui'); render(); };
+      back.querySelector('#fU').onsubmit = (e) => { e.preventDefault(); const g = new FormData(e.target); a.butir[bi2] = [(g.get('nama') || '').trim(), g.get('st'), (g.get('ket') || '').trim(), it[3]]; catat('Mengubah butir agenda ' + a.nama + ': ' + g.get('nama')); tutupDrawer(); toast('Butir diperbarui'); render(); if (it[3]) latar(api('ubah', { tabel: 'AgendaButir', id: it[3], data: { agenda_id: String(a._rid || ''), nama: a.butir[bi2][0], status: a.butir[bi2][1], ket: a.butir[bi2][2] } }), 'Ubah butir'); };
     });
-    v.querySelectorAll('[data-buang]').forEach(b => b.onclick = async () => { const [aid, bi] = b.dataset.buang.split(':'); const a = cariAgenda(aid); if (!a) { toast('Agenda tidak ditemukan.'); return; } const bi2 = +bi; const it = a.butir[bi2]; if (!confirm('Hapus butir "' + it[0] + '"?')) return; if (it[3]) { try { await api('hapus', { tabel: 'AgendaButir', id: it[3] }); } catch (err) { toast(err.message); return; } } a.butir.splice(bi2, 1); catat('Menghapus butir agenda ' + a.nama + ': ' + it[0]); render(); });
+    v.querySelectorAll('[data-buang]').forEach(b => b.onclick = () => { const [aid, bi] = b.dataset.buang.split(':'); const a = cariAgenda(aid); if (!a) { toast('Agenda tidak ditemukan.'); return; } const bi2 = +bi; const it = a.butir[bi2]; if (!confirm('Hapus butir "' + it[0] + '"?')) return; a.butir.splice(bi2, 1); catat('Menghapus butir agenda ' + a.nama + ': ' + it[0]); render(); toast('Butir dihapus'); if (it[3]) latar(api('hapus', { tabel: 'AgendaButir', id: it[3] }), 'Hapus butir'); });
   }
 
   /* ---------- Surat masuk ---------- */
@@ -510,29 +512,24 @@
     back.addEventListener('click', async (e) => {
       const a = e.target.closest('[data-a]'); if (!a) return;
       if (a.dataset.a === 'cetak') window.cetakDokumen(window.lembarDisposisi(s, BAGIAN), 'Lembar disposisi ' + s.agenda);
-      if (a.dataset.a === 'selesai') { s.status = 'Selesai'; if (s._rid) { try { await api('ubah', { tabel: 'SuratMasuk', id: s._rid, data: smKeServer(s) }); } catch (err) { toast(err.message); } } catat('Menandai selesai surat masuk ' + s.agenda); tutupDrawer(); toast('Surat ' + s.agenda + ' selesai'); shell(); }
+      if (a.dataset.a === 'selesai') { s.status = 'Selesai'; catat('Menandai selesai surat masuk ' + s.agenda); tutupDrawer(); toast('Surat ' + s.agenda + ' selesai'); shell(); if (s._rid) latar(api('ubah', { tabel: 'SuratMasuk', id: s._rid, data: smKeServer(s) }), 'Tandai selesai'); }
       if (a.dataset.a === 'unduh') { catat('Mengunduh surat masuk ' + s.agenda); return; }
       if (a.dataset.a === 'edit') { if (!bolehCatatMasuk()) { toast('Hanya Admin/Sekretariat/Ketua'); return; } tutupDrawer(); formEditMasuk(s.id); return; }
-      if (a.dataset.a === 'arsip') { if (!bolehCatatMasuk()) { toast('Hanya Admin/Sekretariat/Ketua'); return; } s.arsip = true; if (s._rid) { try { await api('ubah', { tabel: 'SuratMasuk', id: s._rid, data: smKeServer(s) }); } catch (err) { toast(err.message); return; } } catat('Mengarsipkan surat masuk ' + s.agenda); tutupDrawer(); toast('Diarsipkan: ' + s.agenda); shell(); detailMasuk(s.id); return; }
-      if (a.dataset.a === 'keluar-arsip') { if (!bolehCatatMasuk()) { toast('Hanya Admin/Sekretariat/Ketua'); return; } s.arsip = false; if (s._rid) { try { await api('ubah', { tabel: 'SuratMasuk', id: s._rid, data: smKeServer(s) }); } catch (err) { toast(err.message); return; } } catat('Mengeluarkan dari arsip ' + s.agenda); tutupDrawer(); toast('Dikeluarkan dari arsip: ' + s.agenda); shell(); detailMasuk(s.id); return; }
-      if (a.dataset.a === 'hapus') { if (!bolehCatatMasuk()) { toast('Hanya Admin/Sekretariat/Ketua'); return; } if (!confirm('Hapus surat masuk ' + s.agenda + ' — ' + s.perihal + '?')) return; if (s._rid) { try { await api('hapus', { tabel: 'SuratMasuk', id: s._rid }); } catch (err) { toast(err.message); return; } } SM = SM.filter(x => String(x.id) !== String(s.id)); catat('Menghapus surat masuk ' + s.agenda); tutupDrawer(); shell(); toast('Dihapus: ' + s.agenda); return; }
+      if (a.dataset.a === 'arsip') { if (!bolehCatatMasuk()) { toast('Hanya Admin/Sekretariat/Ketua'); return; } s.arsip = true; catat('Mengarsipkan surat masuk ' + s.agenda); tutupDrawer(); toast('Diarsipkan: ' + s.agenda); shell(); detailMasuk(s.id); if (s._rid) latar(api('ubah', { tabel: 'SuratMasuk', id: s._rid, data: smKeServer(s) }), 'Arsip surat'); return; }
+      if (a.dataset.a === 'keluar-arsip') { if (!bolehCatatMasuk()) { toast('Hanya Admin/Sekretariat/Ketua'); return; } s.arsip = false; catat('Mengeluarkan dari arsip ' + s.agenda); tutupDrawer(); toast('Dikeluarkan dari arsip: ' + s.agenda); shell(); detailMasuk(s.id); if (s._rid) latar(api('ubah', { tabel: 'SuratMasuk', id: s._rid, data: smKeServer(s) }), 'Keluarkan arsip'); return; }
+      if (a.dataset.a === 'hapus') { if (!bolehCatatMasuk()) { toast('Hanya Admin/Sekretariat/Ketua'); return; } if (!confirm('Hapus surat masuk ' + s.agenda + ' — ' + s.perihal + '?')) return; SM = SM.filter(x => String(x.id) !== String(s.id)); catat('Menghapus surat masuk ' + s.agenda); tutupDrawer(); shell(); toast('Dihapus: ' + s.agenda); if (s._rid) latar(api('hapus', { tabel: 'SuratMasuk', id: s._rid }), 'Hapus surat'); return; }
     });
     const fd = back.querySelector('#fDisp');
-    if (fd) fd.onsubmit = async (e) => {
+    if (fd) fd.onsubmit = (e) => {
       e.preventDefault();
       const ke = Array.from(fd.querySelectorAll('input[type=checkbox]:checked')).map(x => x.value);
       if (!ke.length) { toast('Pilih minimal satu bagian tujuan'); return; }
       const itemDisp = { tgl: HARI_INI, ke, instruksi: fd.ins.value, catatan: fd.cat.value.trim(), batas: fd.batas.value };
       s.disp.push(itemDisp);
       s.status = 'Didisposisi';
-      try {
-        if (s._rid) {
-          await api('tambah', { tabel: 'Disposisi', data: { surat_id: String(s._rid), tgl: HARI_INI, ke: ke.join(', '), instruksi: fd.ins.value, catatan: fd.cat.value.trim(), batas: fd.batas.value } });
-          await api('ubah', { tabel: 'SuratMasuk', id: s._rid, data: smKeServer(s) });
-        }
-      } catch (err) { toast(err.message + ' — disposisi hanya di layar'); }
       catat('Mendisposisikan ' + s.agenda + ' ke ' + ke.join(', '), 'Ketua LSP');
       tutupDrawer(); toast('Disposisi terkirim ke ' + ke.join(', ')); shell(); detailMasuk(id);
+      if (s._rid) latar((async () => { await api('tambah', { tabel: 'Disposisi', data: { surat_id: String(s._rid), tgl: HARI_INI, ke: ke.join(', '), instruksi: fd.ins.value, catatan: fd.cat.value.trim(), batas: fd.batas.value } }); await api('ubah', { tabel: 'SuratMasuk', id: s._rid, data: smKeServer(s) }); })(), 'Kirim disposisi');
     };
   }
 
@@ -566,8 +563,8 @@
         }
       } catch (err) { toast(err.message); btn.disabled = false; btn.textContent = 'Simpan perubahan'; return; }
       Object.assign(s, { asal: f.asal.value.trim(), nomor: f.nomor.value.trim(), sifat: f.sifat.value, tglSurat: f.tglSurat.value, terima: f.terima.value, perihal: f.perihal.value.trim(), file_id, berkas: file_nama || s.berkas, file_url });
-      if (s._rid) { try { await api('ubah', { tabel: 'SuratMasuk', id: s._rid, data: smKeServer(s) }); } catch (err) { toast(err.message + ' — perubahan hanya di layar'); } }
       catat('Mengubah surat masuk ' + s.agenda); tutupDrawer(); toast('Perubahan tersimpan: ' + s.agenda); shell(); detailMasuk(s.id);
+      if (s._rid) latar(api('ubah', { tabel: 'SuratMasuk', id: s._rid, data: smKeServer(s) }), 'Ubah surat');
     };
   }
 
@@ -599,11 +596,8 @@
       } catch (err) { toast(err.message); btn.disabled = false; btn.textContent = 'Simpan surat masuk'; return; }
       seq.SM++;
       const s = { id: SM.length + 1, agenda: no, tglSurat: f.tglSurat.value, terima: f.terima.value, asal: f.asal.value.trim(), nomor: f.nomor.value.trim(), perihal: f.perihal.value.trim(), sifat: f.sifat.value, status: 'Diterima', disp: [], berkas: file_nama || ('Pindaian_' + no.replace(/\W+/g, '_') + '.pdf'), file_id, file_url };
-      try {
-        const b = await api('tambah', { tabel: 'SuratMasuk', data: smKeServer(s) });
-        if (b && b.id) { s._rid = b.id; s.id = b.id; }
-      } catch (err) { toast(err.message + ' — tersimpan di layar saja'); }
       SM.push(s); catat('Mencatat surat masuk ' + no); tutupDrawer(); toast('Surat masuk tercatat: ' + no); pergi('masuk'); detailMasuk(s.id);
+      latar(api('tambah', { tabel: 'SuratMasuk', data: smKeServer(s) }).then(b => { if (b && b.id) { s._rid = b.id; s.id = b.id; } }), 'Catat surat');
     };
   }
 
@@ -646,13 +640,8 @@
   async function vTemplat(v, T) {
     T.textContent = 'Templat dokumen';
     const K = window.KOP;
-    // Samakan tampilan dengan tab Kop di sheet: muat baris Kop dari backend (publik).
-    let kopId = '';
-    try {
-      const r = await api('list', { tabel: 'Kop', opsi: { per: 5 } });
-      const b = (r && r.baris && r.baris[0]) || null;
-      if (b) { kopId = b.id || ''; ['l1', 'l2', 'l3', 'l4', 'l5', 'kota', 'jabatan', 'nama', 'nip'].forEach(k => { if (b[k] != null && String(b[k]) !== '') K[k] = b[k]; }); }
-    } catch (e) { /* offline: pakai bawaan */ }
+    // Kop sudah dimuat saat login (muatKop/muatKopDari) — jangan panggil server lagi di sini agar tab Templat langsung tampil.
+    let kopId = window.__kopId || '';
     const tplLihat = window.TEMPLAT.filter(t => bolehUbahKat(t.kat));
     const kelolaKop = bolehKelolaKop();
     // Kelola Templat DIMATIKAN sementara: hanya templat bawaan yg tampil.
@@ -667,17 +656,12 @@
       <div class="note" style="margin-top:14px">Butuh templat baru di luar daftar ini? Kabari pengembang — templat bawaan di atas tetap seperti semula.</div>`;
     v.querySelectorAll('[data-t]').forEach(b => b.onclick = () => { const t = window.TEMPLAT.find(x => x.id === b.dataset.t); if (!bolehUbahKat(t.kat)) { toast('Templat ini di luar kategori Anda'); return; } window.bukaTemplat(b.dataset.t, API); });
     const fk = document.getElementById('fKop');
-    if (fk) fk.onsubmit = async (e) => {
+    if (fk) fk.onsubmit = (e) => {
       e.preventDefault(); if (!bolehKelolaKop()) { toast('Hanya Admin atau Sekretariat yang dapat mengubah kop'); return; }
       const isi = {}; Array.from(fk.elements).forEach(x => { if (x.name) { K[x.name] = x.value.trim(); isi[x.name] = x.value.trim(); } });
-      const btn = fk.querySelector('button[type=submit]'); if (btn) { btn.disabled = true; btn.textContent = 'Menyimpan…'; }
-      try {
-        if (kopId) await api('ubah', { tabel: 'Kop', id: kopId, data: isi });
-        else { const b = await api('tambah', { tabel: 'Kop', data: isi }); kopId = (b && b.id) || kopId; }
-        try { Object.assign(window.KOP, K); } catch (err) {}
-        catat('Mengubah pengaturan kop surat'); toast('Pengaturan kop tersimpan & tampil di semua templat');
-      } catch (err) { toast(err.message + ' — tersimpan sementara di browser saja'); }
-      if (btn) { btn.disabled = false; btn.textContent = 'Simpan pengaturan'; }
+      try { Object.assign(window.KOP, K); } catch (err) {}
+      catat('Mengubah pengaturan kop surat'); toast('Pengaturan kop tersimpan & tampil di semua templat');
+      latar(kopId ? api('ubah', { tabel: 'Kop', id: kopId, data: isi }) : api('tambah', { tabel: 'Kop', data: isi }).then(b => { kopId = (b && b.id) || kopId; }), 'Simpan kop');
     };
   }
 
@@ -806,7 +790,7 @@
     if (mini) { const k = mini.firstElementChild, sc = () => { const r = mini.clientWidth / k.offsetWidth; k.style.transform = `scale(${r})`; mini.style.height = Math.min(k.offsetHeight * r, 520) + 'px'; }; requestAnimationFrame(sc); }
     back.addEventListener('click', async (e) => {
       const a = e.target.closest('[data-a]'); if (!a) return;
-      const act = a.dataset.a, ubahAlur = async (al, pesan, siapa) => { if (al === 'Disahkan' && !bolehSahkan()) { toast('Hanya Ketua LSP yang dapat mengesahkan'); return; } if (['Diajukan', 'Draf', 'Terkirim'].includes(al) && !bisaUbah && al !== 'Draf') { toast('Di luar kategori Anda'); return; } d.alur = al; d.status = al === 'Disahkan' || al === 'Terkirim' ? 'Berlaku' : 'Draf'; await simpanDokBackend(d); catat(pesan + ' ' + d.kode, siapa); toast(pesan + ' ' + d.kode); shell(); detail(id); };
+      const act = a.dataset.a, ubahAlur = (al, pesan, siapa) => { if (al === 'Disahkan' && !bolehSahkan()) { toast('Hanya Ketua LSP yang dapat mengesahkan'); return; } if (['Diajukan', 'Draf', 'Terkirim'].includes(al) && !bisaUbah && al !== 'Draf') { toast('Di luar kategori Anda'); return; } d.alur = al; d.status = al === 'Disahkan' || al === 'Terkirim' ? 'Berlaku' : 'Draf'; simpanDokBackend(d); catat(pesan + ' ' + d.kode, siapa); toast(pesan + ' ' + d.kode); shell(); detail(id); };
       if (act === 'lihat') window.cetakDokumen(htmlDok(d), d.judul);
       else if (act === 'ubah') { if (!bisaUbah) { toast('Di luar kategori Anda'); return; } tutupDrawer(); window.bukaTemplat(d.tpl.id, API, { id: d.id, kat: d.kat, nomor: d.kode, data: d.tpl.data }); }
       else if (act === 'ajukan') { if (!bisaUbah) { toast('Di luar kategori Anda'); return; } ubahAlur('Diajukan', 'Mengajukan pengesahan'); }
@@ -814,12 +798,12 @@
       else if (act === 'sahkan') ubahAlur('Disahkan', 'Mengesahkan', 'Ketua LSP');
       else if (act === 'kirim') { if (!bisaUbah) { toast('Di luar kategori Anda'); return; } ubahAlur('Terkirim', 'Menandai terkirim'); }
       else if (act === 'edit') { if (!bolehKelolaArsip(d) && !bisaUbah) { toast('Di luar kategori Anda'); return; } tutupDrawer(); formEditDok(id); }
-      else if (act === 'arsip') { if (!bolehKelolaArsip(d)) { toast('Hanya Admin/Sekretariat, atau pemilik dokumen di kategorinya'); return; } d.arsip = true; d.status = 'Berlaku'; if (!d.terbit) d.terbit = HARI_INI; await simpanDokBackend(d); catat('Mengarsipkan ' + d.kode); toast('Diarsipkan: ' + d.kode); shell(); detail(id); }
-      else if (act === 'keluar-arsip') { if (!bolehKelolaArsip(d)) { toast('Hanya Admin/Sekretariat, atau pemilik dokumen di kategorinya'); return; } d.arsip = false; await simpanDokBackend(d); catat('Mengeluarkan dari arsip ' + d.kode); toast('Dikeluarkan dari arsip: ' + d.kode); shell(); detail(id); }
+      else if (act === 'arsip') { if (!bolehKelolaArsip(d)) { toast('Hanya Admin/Sekretariat, atau pemilik dokumen di kategorinya'); return; } d.arsip = true; d.status = 'Berlaku'; if (!d.terbit) d.terbit = HARI_INI; simpanDokBackend(d); catat('Mengarsipkan ' + d.kode); toast('Diarsipkan: ' + d.kode); shell(); detail(id); }
+      else if (act === 'keluar-arsip') { if (!bolehKelolaArsip(d)) { toast('Hanya Admin/Sekretariat, atau pemilik dokumen di kategorinya'); return; } d.arsip = false; simpanDokBackend(d); catat('Mengeluarkan dari arsip ' + d.kode); toast('Dikeluarkan dari arsip: ' + d.kode); shell(); detail(id); }
       else if (act === 'tanpa-berkas') { toast('Belum ada berkas Drive untuk dokumen ini. Tambahkan lewat Ubah data atau Unggah revisi.'); return; }
       else if (act === 'unduh') { catat('Mengunduh ' + d.kode); return; }
       else if (act === 'revisi') { if (!bisaUbah) { toast('Di luar kategori Anda'); return; } tutupDrawer(); formRevisi(id); return; }
-      else if (act === 'hapus') { if (!bolehKelolaArsip(d)) { toast('Hanya Admin/Sekretariat, atau pemilik dokumen di kategorinya'); return; } if (!confirm('Hapus ' + (d.surat ? 'surat ' : 'dokumen ') + d.kode + ' — ' + d.judul + '?' + (d.arsip ? ' (dokumen arsip)' : ''))) return; if (d._rid) { try { await api('hapus', { tabel: 'Dokumen', id: d._rid }); } catch (err) { toast(err.message); return; } } DOCS = DOCS.filter(x => x.id !== id); catat('Menghapus ' + d.kode); tutupDrawer(); shell(); toast('Dihapus: ' + d.kode); }
+      else if (act === 'hapus') { if (!bolehKelolaArsip(d)) { toast('Hanya Admin/Sekretariat, atau pemilik dokumen di kategorinya'); return; } if (!confirm('Hapus ' + (d.surat ? 'surat ' : 'dokumen ') + d.kode + ' — ' + d.judul + '?' + (d.arsip ? ' (dokumen arsip)' : ''))) return; DOCS = DOCS.filter(x => x.id !== id); catat('Menghapus ' + d.kode); tutupDrawer(); shell(); toast('Dihapus: ' + d.kode); if (d._rid) latar(api('hapus', { tabel: 'Dokumen', id: d._rid }), 'Hapus dokumen'); }
       else toast(act);
     });
   }
@@ -857,8 +841,8 @@
         }
       } catch (err) { toast(err.message); btn.disabled = false; btn.textContent = 'Simpan perubahan'; return; }
       Object.assign(d, { judul: f.judul.value.trim(), kat: k, pemilik: f.pemilik.value.trim() || d.pemilik, terbit: f.terbit.value, sampai: f.sampai.value, file_id, berkas: file_nama || d.berkas, file_url });
-      await simpanDokBackend(d);
       catat('Mengubah data ' + d.kode); tutupDrawer(); toast('Perubahan tersimpan: ' + d.kode); shell(); detail(id);
+      simpanDokBackend(d);
     };
   }
 
@@ -890,14 +874,9 @@
       Object.assign(d, { rev: d.rev + 1, terbit: HARI_INI, berkas: file_nama || d.berkas, file_id, file_url });
       const itemRev = { rev: d.rev, tanggal: HARI_INI, oleh: PERAN_AKTIF, catatan, file_id, file_nama: file_nama || d.berkas, file_url };
       d.riwayat.push(itemRev);
-      try {
-        if (d._rid) {
-          await api('tambah', { tabel: 'Revisi', data: { dokumen_id: String(d._rid), rev: String(d.rev), tanggal: HARI_INI, oleh: PERAN_AKTIF, catatan, file_id, file_nama: file_nama || d.berkas, file_url } });
-          await simpanDokBackend(d);
-        }
-      } catch (err) { toast(err.message + ' — revisi hanya di layar'); }
       catat('Mengunggah revisi ' + d.rev + ' ' + d.kode + (catatan ? ' — ' + catatan : ''));
       tutupDrawer(); toast('Revisi ' + d.rev + ' tersimpan: ' + d.kode); shell(); detail(id);
+      if (d._rid) latar((async () => { await api('tambah', { tabel: 'Revisi', data: { dokumen_id: String(d._rid), rev: String(d.rev), tanggal: HARI_INI, oleh: PERAN_AKTIF, catatan, file_id, file_nama: file_nama || d.berkas, file_url } }); await api('ubah', { tabel: 'Dokumen', id: d._rid, data: dokKeServer(d) }); })(), 'Simpan revisi');
     };
   }
 
@@ -938,17 +917,14 @@
         if (o.id) {
           d = cariDok(o.id);
           Object.assign(d, { judul: o.judul, kat: o.kat, tpl: o.tpl, terbit: o.tanggal, status: stt }); if (d.surat) d.alur = o.alur === 'Diajukan' ? 'Diajukan' : 'Draf';
-          if (d._rid) { try { await api('ubah', { tabel: 'Dokumen', id: d._rid, data: dokKeServer(d) }); } catch (err) { toast(err.message + ' — perubahan hanya di layar'); } }
           catat((d.alur === 'Diajukan' ? 'Mengajukan pengesahan ' : 'Memperbarui draf ') + d.kode);
+          if (d._rid) latar(api('ubah', { tabel: 'Dokumen', id: d._rid, data: dokKeServer(d) }), 'Simpan dokumen');
         } else {
           const m = String(o.nomor || '').match(/^(\d+)/); if (m) seq.SURAT = Math.max(seq.SURAT || 0, +m[1]);
           d = { id: DOCS.length + 1, kode: o.nomor, kat: o.kat, judul: o.judul, pemilik: (typeof bagianSaya === 'function' && bagianSaya()) || 'Sekretariat', terbit: o.tanggal || HARI_INI, sampai: '', status: stt, rev: 1, berkas: o.judul.replace(/[^A-Za-z0-9]+/g, '_').slice(0, 40) + '.pdf', tpl: o.tpl };
           if (o.surat) { d.surat = true; d.alur = o.alur; }
-          try {
-            const b = await api('tambah', { tabel: 'Dokumen', data: dokKeServer(d) });
-            if (b && b.id) { d._rid = b.id; d.id = b.id; }
-          } catch (err) { toast(err.message + ' — tersimpan di layar saja'); }
           DOCS.push(d); catat('Membuat ' + o.jenis.toLowerCase() + ' ' + d.kode + ' dari templat');
+          latar(api('tambah', { tabel: 'Dokumen', data: dokKeServer(d) }).then(b => { if (b && b.id) { d._rid = b.id; d.id = b.id; } }), 'Simpan dokumen');
         }
       } catch (err) { toast(err.message); return; }
       toast((d.surat ? (d.alur === 'Diajukan' ? 'Diajukan ke Ketua: ' : 'Draf tersimpan: ') : (stt === 'Berlaku' ? 'Diarsipkan: ' : 'Draf tersimpan: ')) + d.kode);
@@ -1012,12 +988,9 @@
       } catch (err) { toast(err.message); btn.disabled = false; btn.textContent = 'Simpan dokumen'; return; }
       const d = { id: DOCS.length + 1, kode: no, kat: k, judul: f.judul.value.trim(), pemilik: f.pemilik.value, terbit: f.terbit.value, sampai: f.sampai.value, status: f.status.value, rev: 1, berkas: file_nama || 'berkas_baru.pdf', file_id, file_url };
       if (sr) { d.surat = true; d.alur = f.status.value === 'Berlaku' ? 'Disahkan' : 'Draf'; }
-      try {
-        const b = await api('tambah', { tabel: 'Dokumen', data: dokKeServer(d) });
-        if (b && b.id) { d._rid = b.id; d.id = b.id; }
-      } catch (err) { toast(err.message + ' — tersimpan di layar saja'); }
       DOCS.push(d); catat('Mengunggah ' + d.judul);
       tutupDrawer(); toast('Dokumen tersimpan: ' + d.kode + (file_url ? ' (berkas di Drive)' : '')); if (sr) pergi('keluar'); else pergi('dokumen', k);
+      latar(api('tambah', { tabel: 'Dokumen', data: dokKeServer(d) }).then(b => { if (b && b.id) { d._rid = b.id; d.id = b.id; } }), 'Simpan dokumen');
     };
   }
 
