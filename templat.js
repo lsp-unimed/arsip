@@ -99,12 +99,12 @@
       ],
       isi: (d, no) => {
         const ds = lines(d.dasar), pt = rows(d.petugas);
-        return `${kop()}<div class="r" style="margin-bottom:6pt">${esc(KOPaktif().kota)}, ${tglPanjang(d.tanggal)}</div>${judulTengah('SURAT TUGAS', no)}
+        return `${kop()}${judulTengah('SURAT TUGAS', no)}
           ${ds.length ? `<table class="meta"><tr><td>Dasar</td><td>:</td><td>${ds.length > 1 ? ol(ds) : esc(ds[0])}</td></tr></table>` : ''}
           <p>Ketua Lembaga Sertifikasi Profesi Universitas Negeri Medan menugaskan kepada:</p>
           <table class="tbl"><thead><tr><th style="width:8%">No.</th><th>Nama</th><th>NIP / No. Reg.</th><th>Tugas</th></tr></thead><tbody>${pt.map((r, i) => `<tr><td class="c">${i + 1}.</td><td>${esc(r[0])}</td><td>${esc(r[1] || '')}</td><td>${esc(r[2] || '')}</td></tr>`).join('')}</tbody></table>
           ${meta([['Untuk', d.keperluan], ['Hari/tanggal', hariTgl(d.tglTugas)], ['Waktu', d.waktu], ['Tempat', d.tempat]])}
-          ${para(d.penutup)}${ttd(d, { tanpaTanggal: true })}`;
+          ${para(d.penutup)}<div class="r" style="margin:10pt 0 0">${esc(KOPaktif().kota)}, ${tglPanjang(d.tanggal)}</div>${ttd(d, { tanpaTanggal: true })}`;
       }
     },
     {
@@ -240,7 +240,7 @@
   .kertas ol{margin:0 0 8pt;padding-left:18pt}.kertas li{margin:0 0 2pt;text-align:justify}
   .kertas .kop{display:grid;grid-template-columns:28mm 1fr 38mm;gap:3mm;align-items:center;text-align:center;border-bottom:1.5pt solid #000;padding-bottom:1.5mm;margin-bottom:5mm}
   .kertas .kop>div{min-width:0}
-  .kertas .kop img.kiri{height:19mm;width:auto;max-width:28mm;object-fit:contain;justify-self:center;align-self:center}
+  .kertas .kop img.kiri{height:21mm;width:auto;max-width:28mm;object-fit:contain;justify-self:center;align-self:center}
   .kertas .kop img.kanan{height:14mm;width:auto;max-width:100%;object-fit:contain}
   .kertas .kop .l1{font-size:12.5pt;font-weight:bold;line-height:1.22;white-space:normal}.kertas .kop .l2{font-size:12.5pt;font-weight:bold;line-height:1.22;white-space:normal}.kertas .kop .l3{font-size:10pt;font-weight:bold;line-height:1.3;white-space:normal}.kertas .kop .l4{font-size:8.5pt;line-height:1.25;white-space:normal}
   .kertas table{border-collapse:collapse}
