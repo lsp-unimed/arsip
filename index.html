@@ -14,7 +14,8 @@
 <div id="app"></div>
 
 <script src="templat.js?v=3"></script>
-<script src="templatkustom.js?v=1"></script>
+<!-- Kelola Templat DIMATIKAN sementara (2026-10-10, atas permintaan Pak Boss): script kustom tidak dimuat, tombol + daftar kustom disembunyikan. File templatkustom.js + sheet TemplatKustom tetap ada, tinggal aktifkan lagi bila diminta. -->
+<!-- <script src="templatkustom.js?v=1"></script> -->
 <script>
 (function () {
   'use strict';
@@ -122,11 +123,11 @@
     } catch (e) {}
   }
   async function muatData() {
-    if (DATA_OK) { await muatKop(); try { if (window.muatTemplatKustom) await window.muatTemplatKustom(api); } catch (e) {} return true; }
+    if (DATA_OK) { await muatKop(); return true; }
     const ambil = async (tabel) => { try { const r = await api('list', { tabel, opsi: { per: 200 } }); return (r && r.baris) || []; } catch (e) { return []; } };
-    const [dok, rev, sm, disp, ag, agB, lg, tku] = await Promise.all([ambil('Dokumen'), ambil('Revisi'), ambil('SuratMasuk'), ambil('Disposisi'), ambil('Agenda'), ambil('AgendaButir'), ambil('Log'), ambil('TemplatKustom')]);
+    const [dok, rev, sm, disp, ag, agB, lg] = await Promise.all([ambil('Dokumen'), ambil('Revisi'), ambil('SuratMasuk'), ambil('Disposisi'), ambil('Agenda'), ambil('AgendaButir'), ambil('Log')]);
     await muatKop();
-    try { if (window.muatTemplatKustom) await window.muatTemplatKustom(api); else if (tku.length) { window.TEMPLAT_KUSTOM = tku.map(x => ({ _rid: x.id, id: x.tpl_id || x.id, nama: x.nama || 'Templat kustom', kode: x.kode || 'DOK', kat: x.kat || 'KOR', ket: x.ket || '', surat: String(x.surat || '').toUpperCase() === 'Y', def: window.tplKustomNorm ? window.tplKustomNorm(x.definisi) : x.definisi })); } } catch (e) {}
+    // Kelola Templat DIMATIKAN sementara: TemplatKustom tidak dimuat.
     if (dok.length || sm.length || ag.length) {
       DOCS = dok.map(dokDariServer);
       // tempel riwayat revisi per dokumen
@@ -614,24 +615,18 @@
       if (b) { kopId = b.id || ''; ['l1', 'l2', 'l3', 'l4', 'l5', 'kota', 'jabatan', 'nama', 'nip'].forEach(k => { if (b[k] != null && String(b[k]) !== '') K[k] = b[k]; }); }
     } catch (e) { /* offline: pakai bawaan */ }
     const tplLihat = window.TEMPLAT.filter(t => bolehUbahKat(t.kat));
-    const listK = window.TEMPLAT_KUSTOM || [];
-    const kusLihat = listK.filter(t => bolehUbahKat(t.kat || 'KOR'));
     const kelolaKop = bolehKelolaKop();
+    // Kelola Templat DIMATIKAN sementara: hanya templat bawaan yg tampil.
     v.innerHTML = `<p class="muted lead">Pilih templat, isi formulir singkat, dan dokumen tersusun lengkap dengan kop surat, nomor manual sesuai buku agenda, dan blok tanda tangan. Hasilnya dapat dicetak atau disimpan sebagai PDF.${tplLihat.length < window.TEMPLAT.length ? ' Templat di luar kategori Anda disembunyikan.' : ''}</p>
-      ${kelolaKop ? '<div style="margin:0 0 12px"><button class="btn" id="bKelolaTpl" type="button">+ Kelola Templat (tambah / ubah)</button></div>' : ''}
       <div class="tpl-grid">${tplLihat.map(t => `<div class="panel tpl"><span class="chip">${t.surat ? 'Surat keluar' : 'Dokumen'}</span><h3>${esc(t.nama)}</h3><p class="muted">${esc(t.ket)}</p><div class="code muted" style="font-size:.78rem">Nomor diketik manual (lihat Pedoman penomoran)</div><button class="btn" data-t="${t.id}" type="button">Gunakan templat</button></div>`).join('') || '<div class="panel muted">Tidak ada templat untuk kategori Anda.</div>'}</div>
-      ${kusLihat.length ? `<h2 style="margin-top:18px">Templat kustom LSP</h2><div class="tpl-grid">${kusLihat.map(t => `<div class="panel tpl"><span class="chip">${t.surat ? 'Surat keluar' : 'Dokumen'} · kustom</span><h3>${esc(t.nama)}</h3><p class="muted">${esc(t.ket || '')}</p><div class="code muted" style="font-size:.78rem">${esc(t.kode || '')} · ${esc(katNama(t.kat || 'KOR'))}</div><button class="btn" data-k="${esc(t.id)}" type="button">Gunakan templat</button></div>`).join('')}</div>` : ''}
       <div class="panel" style="margin-top:14px"><h2>Kop surat & penanda tangan bawaan</h2><p class="muted" style="font-size:.88rem">Dipakai oleh semua templat. Hanya Admin dan Sekretariat yang dapat mengubah.</p>
         ${kelolaKop ? `<form class="form" id="fKop"><div class="row2"><label class="f">Baris 1 (lembaga)<input name="l1" value="${esc(K.l1)}"></label><label class="f">Baris 2 (universitas)<input name="l2" value="${esc(K.l2)}"></label></div>
         <div class="row2"><label class="f">Baris 3 (lisensi)<input name="l3" value="${esc(K.l3)}"></label><label class="f">Kota penandatanganan<input name="kota" value="${esc(K.kota)}"></label></div>
         <label class="f">Alamat sekretariat<input name="l4" value="${esc(K.l4)}"></label><label class="f">Laman / kontak<input name="l5" value="${esc(K.l5)}"></label>
         <div class="row2"><label class="f">Jabatan penanda tangan<input name="jabatan" value="${esc(K.jabatan)}"></label><label class="f">Nama Ketua LSP<input name="nama" value="${esc(K.nama)}"></label></div>
         <div class="row2"><label class="f">NIP Ketua<input name="nip" value="${esc(K.nip)}"></label><div style="align-self:end"><button class="btn" type="submit">Simpan pengaturan</button></div></div></form>` : '<p class="note">Formulir kop hanya dapat diubah oleh Admin atau Sekretariat. Peran Anda baca-saja di sini.</p>'}</div>
-      <div class="note" style="margin-top:14px"><b>Templat kustom:</b> templat bawaan tetap ada. Tekan “Kelola Templat” untuk menambah templat baru (kop otomatis, nomor tengah/kiri + lampiran/perihal, judul, narasi, daftar bernomor, tabel tambah baris/kolom, tanda tangan kanan/tengah/kiri-kanan, tembusan, lampiran). Tersimpan di sheet backend sehingga tidak hilang saat refresh.</div>`;
+      <div class="note" style="margin-top:14px">Butuh templat baru di luar daftar ini? Kabari pengembang — templat bawaan di atas tetap seperti semula.</div>`;
     v.querySelectorAll('[data-t]').forEach(b => b.onclick = () => { const t = window.TEMPLAT.find(x => x.id === b.dataset.t); if (!bolehUbahKat(t.kat)) { toast('Templat ini di luar kategori Anda'); return; } window.bukaTemplat(b.dataset.t, API); });
-    v.querySelectorAll('[data-k]').forEach(b => b.onclick = () => { const t = (window.TEMPLAT_KUSTOM || []).find(x => x.id === b.dataset.k); if (!t) return; if (!bolehUbahKat(t.kat || 'KOR')) { toast('Templat ini di luar kategori Anda'); return; } window.bukaTemplat(b.dataset.k, API); });
-    const bk = document.getElementById('bKelolaTpl');
-    if (bk) bk.onclick = () => { if (!bolehKelolaKop()) { toast('Hanya Admin/Sekretariat/Ketua'); return; } window.bukaKelolaTemplat(API); };
     const fk = document.getElementById('fKop');
     if (fk) fk.onsubmit = async (e) => {
       e.preventDefault(); if (!bolehKelolaKop()) { toast('Hanya Admin atau Sekretariat yang dapat mengubah kop'); return; }
@@ -762,7 +757,7 @@
     }
     const back = drawer(`<div class="code" style="color:var(--red)">${esc(d.kode)}</div><h2 style="font-size:1.25rem;margin-top:6px">${esc(d.judul)}</h2>${d.surat ? `<span class="badge ${alurB[d.alur]}">${d.alur}</span>` : `<span class="badge ${s[1]}">${s[0]}</span>`}
       ${aksi}
-      <dl class="kv"><dt>Kategori</dt><dd>${esc(katNama(d.kat))}</dd><dt>Penanggung jawab</dt><dd>${esc(d.pemilik)}</dd><dt>Tanggal</dt><dd>${tgl(d.terbit)}</dd><dt>Berlaku sampai</dt><dd>${d.sampai ? tgl(d.sampai) : 'Tidak terbatas'}</dd><dt>Sumber</dt><dd>${d.tpl ? 'Dibuat dari templat ' + esc(((window.TEMPLAT.find(t => t.id === d.tpl.id) || {})).nama || ((window.TEMPLAT_KUSTOM || []).find(t => t.id === d.tpl.id) || {}).nama || '') : 'Berkas diunggah'}</dd><dt>Masa simpan</dt><dd>${esc((KAT.find(k => k[0] === d.kat) || [])[3])}</dd><dt>Akses</dt><dd>${d.kat === 'ASM' || d.kat === 'ASR' ? 'Terbatas: Sekretariat, Sertifikasi, Manajemen Mutu' : 'Seluruh petugas LSP'}</dd></dl>
+      <dl class="kv"><dt>Kategori</dt><dd>${esc(katNama(d.kat))}</dd><dt>Penanggung jawab</dt><dd>${esc(d.pemilik)}</dd><dt>Tanggal</dt><dd>${tgl(d.terbit)}</dd><dt>Berlaku sampai</dt><dd>${d.sampai ? tgl(d.sampai) : 'Tidak terbatas'}</dd><dt>Sumber</dt><dd>${d.tpl ? 'Dibuat dari templat ' + esc(((window.TEMPLAT.find(t => t.id === d.tpl.id) || {})).nama || '') : 'Berkas diunggah'}</dd><dt>Masa simpan</dt><dd>${esc((KAT.find(k => k[0] === d.kat) || [])[3])}</dd><dt>Akses</dt><dd>${d.kat === 'ASM' || d.kat === 'ASR' ? 'Terbatas: Sekretariat, Sertifikasi, Manajemen Mutu' : 'Seluruh petugas LSP'}</dd></dl>
       <div class="file"><i>PDF</i><div><b>${d.file_url ? `<a href="${esc(d.file_url)}" target="_blank" rel="noopener">${esc(d.berkas)}</a>` : esc(d.berkas)}</b><div class="muted" style="font-size:.82rem">${d.file_url ? 'Tersimpan di Drive LSP — klik nama berkas untuk membuka.' : (d.tpl ? 'PDF disusun otomatis dari templat' : 'Belum ada tautan berkas — tambahkan lewat Ubah data atau Unggah revisi.')}</div></div></div>
       <div class="acts">${d.tpl ? '<button class="btn" data-a="lihat">Lihat & cetak</button>' : ''}${d.file_url ? `<a class="btn ghost" href="${esc(d.file_url)}" target="_blank" rel="noopener" data-a="unduh">Buka / unduh berkas</a>` : '<button class="btn ghost" data-a="tanpa-berkas">Unduh</button>'}${bisaUbah ? '<button class="btn ghost" data-a="revisi">Unggah revisi</button>' : ''}</div>
       <p class="muted" style="font-size:.82rem">Unduh membuka berkas Drive; Unggah revisi menyimpan berkas baru sebagai Revisi ${d.rev + 1} dan menaikkan nomor revisi (riwayat lama tetap tercatat).</p>
@@ -871,19 +866,17 @@
   function pilih(hanyaSurat) {
     tutupDrawer();
     const tp = window.TEMPLAT.filter(t => (!hanyaSurat || t.surat) && bolehUbahKat(t.kat));
-    const tpK = (window.TEMPLAT_KUSTOM || []).filter(t => (!hanyaSurat || t.surat) && bolehUbahKat(t.kat || 'KOR'));
     const bsMasuk = bolehCatatMasuk() && !hanyaSurat;
     const back = drawer(`<h2>${hanyaSurat ? 'Buat surat keluar' : 'Dokumen baru'}</h2><p class="muted">Pilih cara mencatat dokumen.${tp.length < window.TEMPLAT.length ? ' Templat di luar kategori Anda disembunyikan.' : ''}</p>
       <div class="choice"><button type="button" data-c="templat" class="on"><b>Buat di web dari templat</b><span>Isi formulir singkat; sistem menyusun dokumen lengkap dengan kop surat, nomor manual sesuai buku agenda, dan tanda tangan. Siap dicetak atau disimpan PDF.</span></button>
       <button type="button" data-c="unggah"><b>Unggah berkas</b><span>Dokumen sudah jadi (PDF hasil pindai atau dari aplikasi lain). Sistem memberi nomor register dan menyimpan berkasnya.</span></button>
       ${bsMasuk ? '<button type="button" data-c="masuk"><b>Catat surat masuk</b><span>Surat dari pihak lain: beri nomor agenda, unggah pindaian, lalu disposisikan.</span></button>' : ''}</div>
-      <h3 style="margin-top:18px" id="tplH">Pilih templat</h3><ul class="list">${tp.map(t => `<li><span><b>${esc(t.nama)}</b> <span class="chip">${t.surat ? 'surat' : 'dokumen'}</span><br><span class="muted" style="font-size:.84rem">${esc(t.ket)}</span></span><button class="btn ghost" type="button" data-t="${t.id}">Gunakan</button></li>`).join('')}${tpK.map(t => `<li><span><b>${esc(t.nama)}</b> <span class="chip">${t.surat ? 'surat' : 'dokumen'} · kustom</span><br><span class="muted" style="font-size:.84rem">${esc(t.ket || '')}</span></span><button class="btn ghost" type="button" data-k="${esc(t.id)}">Gunakan</button></li>`).join('') || '<li class="muted">Tidak ada templat untuk kategori Anda.</li>'}</ul>`);
+      <h3 style="margin-top:18px" id="tplH">Pilih templat</h3><ul class="list">${tp.map(t => `<li><span><b>${esc(t.nama)}</b> <span class="chip">${t.surat ? 'surat' : 'dokumen'}</span><br><span class="muted" style="font-size:.84rem">${esc(t.ket)}</span></span><button class="btn ghost" type="button" data-t="${t.id}">Gunakan</button></li>`).join('') || '<li class="muted">Tidak ada templat untuk kategori Anda.</li>'}</ul>`);
     back.addEventListener('click', (e) => {
-      const c = e.target.closest('[data-c]'), t = e.target.closest('[data-t]'), kk = e.target.closest('[data-k]');
+      const c = e.target.closest('[data-c]'), t = e.target.closest('[data-t]');
       if (c && c.dataset.c === 'unggah') { tutupDrawer(); form(hanyaSurat); }
       else if (c && c.dataset.c === 'masuk') { if (!bolehCatatMasuk()) { toast('Hanya Admin, Sekretariat, atau Ketua yang dapat mencatat surat masuk'); return; } formMasuk(); }
       else if (c) back.querySelector('#tplH').scrollIntoView({ behavior: 'smooth' });
-      else if (kk) { const tm = (window.TEMPLAT_KUSTOM || []).find(x => x.id === kk.dataset.k); if (!tm) return; if (!bolehUbahKat(tm.kat || 'KOR')) { toast('Templat ini di luar kategori Anda'); return; } tutupDrawer(); window.bukaTemplat(kk.dataset.k, API); }
       else if (t) { const tm = window.TEMPLAT.find(x => x.id === t.dataset.t); if (!bolehUbahKat(tm.kat)) { toast('Templat ini di luar kategori Anda'); return; } tutupDrawer(); window.bukaTemplat(t.dataset.t, API); }
     });
   }
