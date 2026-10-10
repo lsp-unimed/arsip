@@ -233,8 +233,8 @@
   .kertas ol{margin:0 0 8pt;padding-left:18pt}.kertas li{margin:0 0 2pt;text-align:justify}
   .kertas .kop{display:grid;grid-template-columns:26mm 1fr 26mm;gap:3mm;align-items:center;text-align:center;border-bottom:1.5pt solid #000;padding-bottom:1.5mm;margin-bottom:5mm}
   .kertas .kop>div{min-width:0}
-  .kertas .kop img{width:26mm;height:20mm;object-fit:contain;justify-self:center}
-  .kertas .kop img.kanan{width:26mm;height:20mm}
+  .kertas .kop img{height:18mm;width:auto;max-width:30mm;object-fit:contain;justify-self:center}
+  .kertas .kop img.kanan{height:18mm;width:auto;max-width:30mm}
   .kertas .kop .l1{font-size:12.5pt;font-weight:bold;line-height:1.22;white-space:normal}.kertas .kop .l2{font-size:12.5pt;font-weight:bold;line-height:1.22;white-space:normal}.kertas .kop .l3{font-size:10pt;font-weight:bold;line-height:1.3;white-space:normal}.kertas .kop .l4{font-size:8.5pt;line-height:1.25;white-space:normal}
   .kertas table{border-collapse:collapse}
   .kertas .meta{margin:0 0 8pt}.kertas .meta td{padding:0 4pt 1pt 0;vertical-align:top}.kertas .meta td:first-child{white-space:nowrap;min-width:28mm}.kertas .meta td:nth-child(2){width:8pt}
