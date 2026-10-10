@@ -73,15 +73,16 @@ var SKEMA = {
     izin: { list: 'admin', ambil: 'admin', tambah: 'admin', ubah: 'admin', hapus: 'admin' }
   },
   SuratMasuk: {
-    kolom: ['agenda', 'tgl_surat', 'terima', 'asal', 'nomor', 'perihal', 'sifat', 'status', 'file_id'],
+    kolom: ['agenda', 'tgl_surat', 'terima', 'asal', 'nomor', 'perihal', 'sifat', 'status', 'file_id', 'file_nama', 'file_url'],
     publik: [],
     aturan: {
       agenda: { wajib: true, maks: 30, pesan: 'Nomor agenda (SM-xxx/tahun) wajib diisi.' },
       perihal: { wajib: true, maks: 300, pesan: 'Perihal wajib diisi.' },
       tgl_surat: { jenis: 'tanggal' },
       terima: { jenis: 'tanggal' },
-      sifat: { pilihan: ['', 'Biasa', 'Segera', 'Sangat segera'], pesan: 'Sifat tidak dikenal.' },
-      status: { pilihan: ['', 'Diterima', 'Didisposisi', 'Selesai'], pesan: 'Status tidak dikenal.' }
+      sifat: { pilihan: ['', 'Biasa', 'Segera', 'Sangat segera', 'Rahasia'], pesan: 'Sifat tidak dikenal.' },
+      status: { pilihan: ['', 'Diterima', 'Didisposisi', 'Selesai'], pesan: 'Status tidak dikenal.' },
+      file_url: { maks: 500 }
     },
     izin: { list: 'admin', ambil: 'admin', tambah: 'admin', ubah: 'admin', hapus: 'admin' }
   },
@@ -296,9 +297,9 @@ function jalankan(body, lewatPost) {
     switch (aksi) {
       case 'list':   hasil = list(nama, body.opsi || {}, true); break;
       case 'ambil':  hasil = ambil(nama, String(body.id || ''), true); break;
-      case 'tambah': hasil = tambah(nama, body.data || {}, true); catatLog(user, 'Menambah ' + nama + ': ' + ringkasData(body.data || {})); break;
-      case 'ubah':   hasil = ubah(nama, String(body.id || ''), body.data || {}, true); catatLog(user, 'Mengubah ' + nama + ' ' + body.id); break;
-      case 'hapus':  hasil = hapus(nama, String(body.id || '')); catatLog(user, 'Menghapus ' + nama + ' ' + body.id); break;
+      case 'tambah': hasil = tambah(nama, body.data || {}, true); if (nama !== 'Log') { try { catatLog(user, 'Menambah ' + nama + ': ' + ringkasData(body.data || {})); } catch (e) {} } break;
+      case 'ubah':   hasil = ubah(nama, String(body.id || ''), body.data || {}, true); if (nama !== 'Log') { try { catatLog(user, 'Mengubah ' + nama + ' ' + body.id); } catch (e) {} } break;
+      case 'hapus':  hasil = hapus(nama, String(body.id || '')); if (nama !== 'Log') { try { catatLog(user, 'Menghapus ' + nama + ' ' + body.id); } catch (e) {} } break;
       default: throw galat('Aksi tidak dikenal.');
     }
     return balas({ ok: true, data: hasil });
