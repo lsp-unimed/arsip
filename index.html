@@ -9,7 +9,7 @@
   <link rel="preconnect" href="https://script.google.com"><link rel="preconnect" href="https://script.googleusercontent.com" crossorigin>
   <link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="arsip.css?v=4">
+  <link rel="stylesheet" href="arsip.css?v=5">
 </head>
 <body>
 <div id="app"></div>
@@ -153,7 +153,6 @@
     const butirBy = {};
     agB.forEach(x => { (butirBy[x.agenda_id] = butirBy[x.agenda_id] || []).push([x.nama || '', x.status || 'warn', x.ket || '', x.id]); });
     AGENDA = ag.map(a => ({ _rid: a.id, id: a.id, nama: a.nama || '', tanggal: tglId(a.tanggal), tempat: a.tempat || '', catatan: a.catatan || '', butir: butirBy[a.id] || [] }));
-    if (lg.length) { LOG.length = 0; lg.slice(0, 60).forEach(x => LOG.push([String(x.waktu || x.dibuat || ''), String(x.siapa || ''), String(x.aksi || '')])); }
     DOCS.forEach(x => { const m = String(x.kode || '').match(/^(\d+)/); if (m) seq.SURAT = Math.max(seq.SURAT || 0, +m[1]); });
     SM.forEach(s => { const m = String(s.agenda || '').match(/^SM-(\d+)/); if (m) seq.SM = Math.max(seq.SM || 0, +m[1]); });
     DATA_OK = true;
@@ -166,7 +165,7 @@
       if (d && ('dok' in d || 'sm' in d || 'ag' in d)) { terapkanDasbor(d); simpanSnapshot(d); return DATA_OK; }
     } catch (e) { /* backend lama: lanjut jalur lama */ }
     const ambil = async (tabel) => { try { const r = await api('list', { tabel, opsi: { per: 200 } }); return (r && r.baris) || []; } catch (e) { return []; } };
-    const [dok, rev, sm, disp, ag, agB, lg] = await Promise.all([ambil('Dokumen'), ambil('Revisi'), ambil('SuratMasuk'), ambil('Disposisi'), ambil('Agenda'), ambil('AgendaButir'), ambil('Log')]);
+    const [dok, rev, sm, disp, ag, agB, lg] = await Promise.all([ambil('Dokumen'), ambil('Revisi'), ambil('SuratMasuk'), ambil('Disposisi'), ambil('Agenda'), ambil('AgendaButir'), Promise.resolve([])]);
     await muatKop();
     // Kelola Templat DIMATIKAN sementara: TemplatKustom tidak dimuat.
     if (dok.length || sm.length || ag.length) {
@@ -179,7 +178,6 @@
       const butirBy = {};
       agB.forEach(x => { (butirBy[x.agenda_id] = butirBy[x.agenda_id] || []).push([x.nama || '', x.status || 'warn', x.ket || '', x.id]); });
       AGENDA = ag.map(a => ({ _rid: a.id, id: a.id, nama: a.nama || '', tanggal: tglId(a.tanggal), tempat: a.tempat || '', catatan: a.catatan || '', butir: butirBy[a.id] || [] }));
-      if (lg.length) { LOG.length = 0; lg.slice(0, 60).forEach(x => LOG.push([String(x.waktu || x.dibuat || ''), String(x.siapa || ''), String(x.aksi || '')])); }
       // sinkronkan urutan nomor surat/masuk dari data server
       DOCS.forEach(d => { const m = String(d.kode || '').match(/^(\d+)/); if (m) seq.SURAT = Math.max(seq.SURAT || 0, +m[1]); });
       SM.forEach(s => { const m = String(s.agenda || '').match(/^SM-(\d+)/); if (m) seq.SM = Math.max(seq.SM || 0, +m[1]); });
@@ -204,11 +202,10 @@
   const cariDok = (id) => DOCS.find(x => String(x.id) === String(id) || (x._lokal != null && String(x._lokal) === String(id)) || (x._rid && String(x._rid) === String(id)) || (x.kode && String(x.kode) === String(id)));
   const cariSM = (id) => SM.find(x => String(x.id) === String(id) || (x._lokal != null && String(x._lokal) === String(id)) || (x._rid && String(x._rid) === String(id)) || (x.agenda && String(x.agenda) === String(id)));
   const cariAgenda = (id) => AGENDA.find(x => String(x.id) === String(id) || (x._lokal != null && String(x._lokal) === String(id)) || (x._rid && String(x._rid) === String(id)));
-  const LOG = [];
   // Catat aktivitas: teks dititipkan ke panggilan simpan berikutnya (server yang menulis Log).
   // Bila tidak ada simpan yang menyusul (mis. mencetak), dikirim sendiri lewat aksi 'catat'.
   const catat = (m, siapa) => {
-    LOG.unshift([jam(), siapa || PERAN_AKTIF, m]); CATATAN = m;
+    CATATAN = m;
     setTimeout(() => { if (CATATAN === m) { CATATAN = ''; api('catat', { data: { pesan: m } }).catch(() => {}); } }, 0);
   };
   // Simpan latar: UI diperbarui dulu, server menyusul diam-diam (tanpa await).
@@ -427,8 +424,7 @@
       <button data-v="pedoman">Pedoman penomoran</button>
       <button type="button" class="grp grp-t" id="grpKat" aria-expanded="${katBuka()}">Kategori <span aria-hidden="true">${katBuka() ? '▾' : '▸'}</span></button>
       <div class="grp-isi"${katBuka() ? '' : ' hidden'}>${katLihat.map(k => `<button data-v="dokumen" data-k="${k[0]}">${esc(k[1])} <span class="n">${n(k[0])}</span></button>`).join('')}</div>
-      <div class="grp">Lainnya</div>
-      <button data-v="aktivitas">Riwayat aktivitas</button>
+      <div class="grp">Akun</div>
       <button data-v="pengguna">Pengguna & hak akses</button>
       <div class="foot">Masuk sebagai <b style="color:#fff">${esc((SESI && SESI.nama) || PERAN_AKTIF)}</b> <span class="muted">@${esc((SESI && SESI.username) || '')} · ${esc(PERAN_AKTIF)}</span><br><a href="#" id="out">Keluar</a><br><a href="#" id="ganti" style="font-size:.82rem">Ganti password</a></div>
     </aside><div class="main"><div class="top"><div class="top-l"><button class="menu" id="menu" aria-label="Buka menu">☰</button><h1 id="title"></h1></div><div class="top-r"><span id="simpanSt" class="simpan" aria-live="polite"></span><button class="btn" id="add" aria-label="Dokumen baru">+<span class="add-t"> Dokumen baru</span></button></div></div><div id="gagalBar" class="gagal" role="alert" hidden></div><div id="view"></div></div></div>`;
@@ -461,7 +457,7 @@
     document.querySelectorAll('.side button[data-v]').forEach(b => b.classList.toggle('on', b.dataset.v === VIEW && (VIEW !== 'dokumen' || (b.dataset.k || '') === FK)));
     const v = document.getElementById('view'), T = document.getElementById('title');
     const go = (root) => root.querySelectorAll('[data-go]').forEach(a => a.onclick = (e) => { e.preventDefault(); VIEW = a.dataset.go; FK = a.dataset.k || ''; render(); });
-    ({ ringkasan: vRingkasan, dokumen: vDokumen, arsip: vArsip, pengingat: vPengingat, agenda: vAgenda, masuk: vMasuk, keluar: vKeluar, templat: vTemplat, pedoman: vPedoman, aktivitas: vAktivitas, pengguna: vPengguna }[VIEW] || vRingkasan)(v, T);
+    ({ ringkasan: vRingkasan, dokumen: vDokumen, arsip: vArsip, pengingat: vPengingat, agenda: vAgenda, masuk: vMasuk, keluar: vKeluar, templat: vTemplat, pedoman: vPedoman, pengguna: vPengguna }[VIEW] || vRingkasan)(v, T);
     go(v);
   }
 
@@ -487,13 +483,10 @@
         <div class="panel"><h2>Surat masuk perlu tindak lanjut</h2><ul class="list">${smBuka.slice(0, 5).map(s => `<li data-sm="${s.id}" style="cursor:pointer"><span><b>${esc(s.perihal)}</b><br><span class="muted" style="font-size:.82rem">${esc(s.asal)} · ${esc(s.agenda)}</span></span><span class="badge ${smB[s.status]}">${s.status}</span></li>`).join('') || '<li class="muted">Semua surat masuk sudah selesai.</li>'}</ul><p style="margin:10px 0 0"><a href="#" data-go="masuk">${smBuka.length > 5 ? `Lihat semua (${smBuka.length})` : 'Buka surat masuk'}</a></p></div>
         <div class="panel"><h2>Surat keluar dalam proses</h2><ul class="list">${tunggu.slice(0, 5).map(d => `<li data-id="${d.id}" style="cursor:pointer"><span><b>${esc(d.judul)}</b><br><span class="muted code" style="font-size:.8rem">${esc(d.kode)}</span></span><span class="badge ${alurB[d.alur]}">${d.alur}</span></li>`).join('') || '<li class="muted">Tidak ada.</li>'}</ul><p style="margin:10px 0 0"><a href="#" data-go="keluar">${tunggu.length > 5 ? `Lihat semua (${tunggu.length})` : 'Buka surat keluar'}</a></p></div>
       </div>
-      <div class="grid g2">
-        ${peranBolehAgenda() ? `<div class="panel"><h2>Agenda terdekat${agAktif ? ': ' + esc(agAktif.nama) : ''}</h2>${agAktif ? `<div class="bar"><i style="width:${agAktif.butir.length ? Math.round(agSiap / agAktif.butir.length * 100) : 0}%"></i></div><p class="muted" style="font-size:.88rem">${agSiap} dari ${agAktif.butir.length} butir siap${agAktif.tanggal ? ' · ' + tgl(agAktif.tanggal) : ''}.</p>
-          ${agAktif.butir.filter(b => b[1] !== 'ok').slice(0, 4).map(b => `<div class="check"><span class="dot ${b[1]}"></span><div><b>${esc(b[0])}</b><div class="muted" style="font-size:.84rem">${esc(b[2] || '')}</div></div><span></span></div>`).join('')}` : '<p class="muted">Belum ada agenda.</p>'}
+      ${peranBolehAgenda() ? `<div class="panel agenda-ring" style="margin-bottom:14px"><h2>Agenda terdekat${agAktif ? ': ' + esc(agAktif.nama) : ''}</h2>${agAktif ? `<div class="bar"><i style="width:${agAktif.butir.length ? Math.round(agSiap / agAktif.butir.length * 100) : 0}%"></i></div><p class="muted" style="font-size:.88rem">${agSiap} dari ${agAktif.butir.length} butir siap${agAktif.tanggal ? ' · ' + tgl(agAktif.tanggal) : ''}.</p>
+          <div class="check-wrap">${agAktif.butir.filter(b => b[1] !== 'ok').slice(0, 6).map(b => `<div class="check"><span class="dot ${b[1]}"></span><div><b>${esc(b[0])}</b><div class="muted" style="font-size:.84rem">${esc(b[2] || '')}</div></div><span></span></div>`).join('')}</div>` : '<p class="muted">Belum ada agenda.</p>'}
           <p style="margin:10px 0 0"><a href="#" data-go="agenda">Lihat semua agenda</a></p></div>` : ''}
-        <div class="panel"><h2>Aktivitas terbaru</h2><ul class="list">${LOG.slice(0, 6).map(l => `<li><span>${esc(l[2])}<br><span class="muted" style="font-size:.82rem">${esc(l[1])}</span></span><span class="muted" style="font-size:.82rem;white-space:nowrap">${esc(l[0].slice(5, 10).split('-').reverse().join('/'))}</span></li>`).join('')}</ul></div>
-      </div>
-      <div class="panel" style="margin-top:14px"><h2>Per kategori</h2><div class="grid g4">${KAT.filter(k => bolehLihatKat(k[0])).map(k => `<a href="#" data-go="dokumen" data-k="${k[0]}" class="katbox"><b style="font-size:1.4rem">${DOCS.filter(d => !d.arsip && d.kat === k[0]).length}</b><div style="font-weight:700">${esc(k[1])}</div><div class="muted" style="font-size:.8rem">${esc(k[2])}</div></a>`).join('')}</div></div>`;
+      <div class="panel"><h2>Per kategori</h2><div class="grid g4">${KAT.filter(k => bolehLihatKat(k[0])).map(k => `<a href="#" data-go="dokumen" data-k="${k[0]}" class="katbox"><b style="font-size:1.4rem">${DOCS.filter(d => !d.arsip && d.kat === k[0]).length}</b><div style="font-weight:700">${esc(k[1])}</div><div class="muted" style="font-size:.8rem">${esc(k[2])}</div></a>`).join('')}</div></div>`;
     v.querySelectorAll('[data-sm]').forEach(li => li.onclick = () => detailMasuk(li.dataset.sm));
     v.querySelectorAll('li[data-id]').forEach(li => li.onclick = () => detail(li.dataset.id));
   }
@@ -788,11 +781,6 @@
       catat('Mengubah pengaturan kop surat'); toast('Pengaturan kop tersimpan & tampil di semua templat');
       latar(() => (kopId ? api('ubah', { tabel: 'Kop', id: kopId, data: isi }) : api('tambah', { tabel: 'Kop', data: isi }).then(b => { kopId = (b && b.id) || kopId; })), 'Simpan kop');
     };
-  }
-
-  function vAktivitas(v, T) {
-    T.textContent = 'Riwayat aktivitas';
-    v.innerHTML = `<p class="muted lead">Setiap pembuatan, pencatatan, pengesahan, disposisi, dan pengunduhan dokumen tercatat dan tidak dapat diubah.</p><div class="table-wrap"><table><thead><tr><th>Waktu</th><th>Petugas</th><th>Aktivitas</th></tr></thead><tbody>${LOG.map(l => `<tr><td data-l="Waktu" style="white-space:nowrap">${esc(l[0])}</td><td data-l="Petugas">${esc(l[1])}</td><td data-l="Aktivitas">${esc(l[2])}</td></tr>`).join('')}</tbody></table></div>`;
   }
 
   async function vPengguna(v, T) {

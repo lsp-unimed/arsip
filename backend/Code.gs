@@ -539,7 +539,7 @@ function dasborMentah_() {
     disp: bacaTabel('Disposisi'),
     ag: bacaTabel('Agenda'),
     agB: bacaTabel('AgendaButir'),
-    log: bacaTabel('Log').slice(-60),
+    // Riwayat aktivitas (Log) tidak ditampilkan di aplikasi; lihat langsung di spreadsheet.
     kop: bacaTabel('Kop')[0] || null
   };
   try { cache.put('dasbor', JSON.stringify(out), 60); } catch (e) { /* > 100 KB: tidak di-cache, tetap dikirim */ }
