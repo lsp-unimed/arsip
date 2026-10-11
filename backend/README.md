@@ -49,6 +49,22 @@ Templat, Kop, Pengguna, Log + Petunjuk.
 - Khusus (butuh login): `cekNomor {nomor}`, `saranNomor {jenis,bulan,tahun}`, `ringkasan {}`
 
 
+## Akun bersama dengan SIPINTAR (11 Oktober 2026)
+
+Satu username + password untuk panel admin SIPINTAR dan Arsip. Sumber akun: **sheet Pengguna SIPINTAR**.
+
+1. Tempel `Code.gs` ini ke Apps Script Arsip, lalu Deploy > Manage deployments > New version.
+2. Project Settings > Script Properties > tambah `SIPINTAR_SHEET_ID` = ID spreadsheet SIPINTAR
+   (dari URL `https://docs.google.com/spreadsheets/d/ID/edit`). Kedua skrip harus di-deploy dengan akun Google yang sama.
+3. Jalankan **sekali** `salinAkunKeSipintar()` dari editor: akun yang hanya ada di Arsip disalin ke SIPINTAR
+   (password lama tetap berlaku). Username yang sudah ada di SIPINTAR tidak ditimpa; hasilnya tampil di Log eksekusi.
+
+Peran SIPINTAR dipetakan otomatis: Sekretariat LSP → Sekretariat, Bagian Administrasi → Administrasi,
+Bagian Sertifikasi → Bidang Sertifikasi, Bagian Manajemen Mutu → Manajemen Mutu; Admin, Ketua LSP, dan Bidang Skema sama.
+Tambah akun, ubah peran, nonaktif, dan reset sandi dilakukan di SIPINTAR (menu Pengguna).
+Ganti password bisa dari kedua aplikasi; sesi lain di aplikasi mana pun berakhir paling lambat 1 menit.
+Bila `SIPINTAR_SHEET_ID` dikosongkan, Arsip kembali memakai tab Pengguna miliknya sendiri.
+
 ## Pembaruan 10 Oktober 2026 — kecepatan & keamanan
 
 Setelah menempel `Code.gs` versi ini:

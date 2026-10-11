@@ -9,7 +9,7 @@
   <link rel="preconnect" href="https://script.google.com"><link rel="preconnect" href="https://script.googleusercontent.com" crossorigin>
   <link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="arsip.css?v=3">
+  <link rel="stylesheet" href="arsip.css?v=4">
 </head>
 <body>
 <div id="app"></div>
@@ -32,6 +32,9 @@
   const PER = 10;
   const API_URL = 'https://script.google.com/macros/s/AKfycby9YSQGGju1QDabN1FrdZrRyQLkDMa4ILFF6xqDechI0Al_ts_3vLYnUcLOjWLn0Rye/exec';
   let SESI = null; // {token, username, nama, peran}
+  // Alamat aplikasi lain (ganti di sini saat domain resmi tersedia).
+  const URL_SIPINTAR = 'https://lsp-unimed.github.io/sipintar/', URL_SIPINTAR_ADMIN = 'https://lsp-unimed.github.io/sipintar/admin.html';
+  let TERPUSAT = false; // true = akun dikelola di SIPINTAR (satu username + password)
   let CATATAN = ''; // teks aktivitas yang ikut terkirim bersama simpan berikutnya (tanpa panggilan Log terpisah)
 
   // Panggil backend (POST text/plain agar lolos CORS Apps Script).
@@ -138,6 +141,7 @@
     } catch (e) {}
   }
   function terapkanDasbor(d) {
+    if ('terpusat' in d) TERPUSAT = !!d.terpusat;
     if (d.saya && SESI) { SESI.nama = d.saya.nama; SESI.peran = d.saya.peran; PERAN_AKTIF = d.saya.peran; simpanSesi(); }
     const dok = d.dok || [], rev = d.rev || [], sm = d.sm || [], disp = d.disp || [], ag = d.ag || [], agB = d.agB || [], lg = d.log || [];
     muatKopDari(d.kop);
@@ -383,8 +387,8 @@
       }
     }
     app.innerHTML = `<div class="login"><div class="art"><div><h1>Arsip dokumen LSP UNIMED</h1><p>Ruang kerja petugas untuk membuat, mencatat, menyimpan, dan menemukan kembali seluruh dokumen lembaga — dari surat undangan sampai berita acara asesmen.</p>
-      <ul><li>Buat surat dan dokumen dari templat berkop, nomor surat ketik manual</li><li>Atau unggah berkas yang sudah jadi</li><li>Surat masuk dengan disposisi, surat keluar dengan alur pengesahan</li><li>Riwayat revisi, pengingat masa berlaku, dan agenda terdekat</li></ul></div><p style="font-size:.85rem">Akses khusus petugas LSP. Satu akun satu peran; akun dibuat oleh Admin.</p></div>
-      <form id="fL"><img src="assets/img/logo-lsp.png" alt="LSP UNIMED"><h2>Masuk petugas</h2>${PESAN_LOGIN ? `<p class="note" style="margin:0">${esc(PESAN_LOGIN)}</p>` : ''}<label class="f">Username<input name="u" required autocomplete="username" placeholder="mis. sekretariat"></label><label class="f">Password<input name="p" type="password" required autocomplete="current-password"></label><label style="display:flex;gap:8px;align-items:center;font-size:.88rem"><input type="checkbox" name="ingat" style="width:auto"> Ingat saya di perangkat ini (7 hari)</label><button class="btn" type="submit" id="bMasuk">Masuk</button><p class="muted" style="font-size:.84rem;margin:0" id="loginInfo">Menghubungkan ke server…</p><a href="https://lsp-unimed.github.io/laman-utama-demo/" style="font-size:.88rem">Kembali ke situs LSP</a></form></div>`;
+      <ul><li>Buat surat dan dokumen dari templat berkop, nomor surat ketik manual</li><li>Atau unggah berkas yang sudah jadi</li><li>Surat masuk dengan disposisi, surat keluar dengan alur pengesahan</li><li>Riwayat revisi, pengingat masa berlaku, dan agenda terdekat</li></ul></div><p style="font-size:.85rem">Akses khusus petugas LSP. Masuk dengan username dan password yang sama dengan panel admin SIPINTAR.</p></div>
+      <form id="fL"><img src="assets/img/logo-lsp.png" alt="LSP UNIMED"><h2>Masuk petugas</h2>${PESAN_LOGIN ? `<p class="note" style="margin:0">${esc(PESAN_LOGIN)}</p>` : ''}<label class="f">Username<input name="u" required autocomplete="username" placeholder="mis. sekretariat"></label><label class="f">Password<input name="p" type="password" required autocomplete="current-password"></label><label style="display:flex;gap:8px;align-items:center;font-size:.88rem"><input type="checkbox" name="ingat" style="width:auto"> Ingat saya di perangkat ini (7 hari)</label><button class="btn" type="submit" id="bMasuk">Masuk</button><p class="muted" style="font-size:.84rem;margin:0" id="loginInfo">Menghubungkan ke server…</p><div class="login-links"><span class="muted">Aplikasi lain:</span><a href="${URL_SIPINTAR}">SIPINTAR publik</a><a href="${URL_SIPINTAR_ADMIN}">Panel admin SIPINTAR</a></div></form></div>`;
     PESAN_LOGIN = '';
     const f = document.getElementById('fL');
     api('ping').then(() => { document.getElementById('loginInfo').textContent = 'Server tersambung. Silakan masuk.'; }).catch((e) => { document.getElementById('loginInfo').textContent = e.message; });
@@ -394,7 +398,7 @@
       btn.disabled = true; btn.textContent = 'Memeriksa…'; info.textContent = 'Menghubungkan…';
       try {
         const d = await api('login', { data: { username: f.u.value.trim(), password: f.p.value, ingat: f.ingat.checked, awal: true } });
-        SESI = Object.assign({}, d.user, { token: d.token, ingat: f.ingat.checked }); simpanSesi();
+        SESI = Object.assign({}, d.user, { token: d.token, ingat: f.ingat.checked }); simpanSesi(); TERPUSAT = !!d.terpusat;
         PERAN_AKTIF = d.user.peran; VIEW = 'ringkasan'; FK = ''; info.textContent = 'Memuat data…';
         // Data panel ikut dalam jawaban login (tanpa panggilan kedua); cadangan ke dasbor bila backend lama.
         if (d.awal) { terapkanDasbor(d.awal); simpanSnapshot(d.awal); } else { try { await muatData(); } catch (err) {} }
@@ -426,7 +430,7 @@
       <div class="grp">Lainnya</div>
       <button data-v="aktivitas">Riwayat aktivitas</button>
       <button data-v="pengguna">Pengguna & hak akses</button>
-      <div class="foot">Masuk sebagai <b style="color:#fff">${esc((SESI && SESI.nama) || PERAN_AKTIF)}</b> <span class="muted">@${esc((SESI && SESI.username) || '')} · ${esc(PERAN_AKTIF)}</span><br><a href="#" id="out">Keluar</a> · <a href="https://lsp-unimed.github.io/laman-utama-demo/">Situs LSP</a><br><a href="#" id="ganti" style="font-size:.82rem">Ganti password</a></div>
+      <div class="foot">Masuk sebagai <b style="color:#fff">${esc((SESI && SESI.nama) || PERAN_AKTIF)}</b> <span class="muted">@${esc((SESI && SESI.username) || '')} · ${esc(PERAN_AKTIF)}</span><br><a href="#" id="out">Keluar</a><br><a href="#" id="ganti" style="font-size:.82rem">Ganti password</a></div>
     </aside><div class="main"><div class="top"><div class="top-l"><button class="menu" id="menu" aria-label="Buka menu">☰</button><h1 id="title"></h1></div><div class="top-r"><span id="simpanSt" class="simpan" aria-live="polite"></span><button class="btn" id="add" aria-label="Dokumen baru">+<span class="add-t"> Dokumen baru</span></button></div></div><div id="gagalBar" class="gagal" role="alert" hidden></div><div id="view"></div></div></div>`;
     document.getElementById('side').addEventListener('click', (e) => {
       if (e.target.closest('#grpKat')) { const buka = !katBuka(); try { localStorage.setItem('arsip_katBuka', buka ? '1' : '0'); } catch (err) {} const g = document.getElementById('grpKat'); g.setAttribute('aria-expanded', buka); g.lastElementChild.textContent = buka ? '▾' : '▸'; g.nextElementSibling.hidden = !buka; return; }
@@ -802,8 +806,8 @@
       ['Bidang Skema', 'Skema & MUK', 'Ya', 'Tidak', 'Tidak'],
       ['Administrasi', 'Surat-menyurat, rekaman asesmen', 'Ya', 'Tidak', 'Tidak']
     ];
-    const kelola = ['Admin', 'Ketua LSP'].includes(kunciPeran());
-    v.innerHTML = `<p class="muted lead">Masuk sebagai <b>${esc((SESI && SESI.nama) || '')}</b> (@${esc((SESI && SESI.username) || '')} · ${esc(PERAN_AKTIF)}). Satu akun satu peran; password tersimpan sebagai hash di server.</p>
+    const kelola = !TERPUSAT && ['Admin', 'Ketua'].includes(kunciPeran());
+    v.innerHTML = `<p class="muted lead">Masuk sebagai <b>${esc((SESI && SESI.nama) || '')}</b> (@${esc((SESI && SESI.username) || '')} · ${esc(PERAN_AKTIF)}). Satu akun satu peran; password tersimpan sebagai hash di server.</p>${TERPUSAT ? `<div class="note" style="margin-bottom:14px">Akun dipakai bersama dengan <b>panel admin SIPINTAR</b>: username dan password sama untuk kedua aplikasi. Penambahan akun, perubahan peran, nonaktif, dan reset sandi dilakukan Admin di <a href="${URL_SIPINTAR_ADMIN}#/pengguna">SIPINTAR → Pengguna</a>. Ganti password di bawah ini berlaku untuk kedua aplikasi.</div>` : ''}
       <div class="table-wrap"><table><thead><tr><th>Peran</th><th>Kategori yang dapat diubah</th><th>Buat & unggah</th><th>Sahkan surat</th><th>Ubah kop & templat</th></tr></thead><tbody>${R.map(r => `<tr><td data-l="Peran"><b>${r[0]}</b></td><td data-l="Kategori">${r[1]}</td><td data-l="Buat & unggah">${r[2]}</td><td data-l="Sahkan surat">${r[3]}</td><td data-l="Ubah kop">${r[4]}</td></tr>`).join('')}</tbody></table></div>
       <div class="panel" style="margin-top:14px"><h2>Ganti password saya</h2><form class="form" id="fPw"><label class="f">Password lama<input type="password" name="lama" required autocomplete="current-password"></label><label class="f">Password baru (min. 8 karakter)<input type="password" name="baru" required minlength="8" autocomplete="new-password"></label><div><button class="btn" type="submit">Simpan password</button></div><p class="muted" style="font-size:.84rem;margin:0" id="pwInfo"></p></form></div>
       <div class="panel" style="margin-top:14px"><h2>Daftar akun</h2><div id="akunList"><p class="muted">Memuat…</p></div>${kelola ? `<h2 style="margin-top:16px">Buat akun baru</h2><form class="form" id="fAkun"><div class="row2"><label class="f">Username<input name="username" required pattern="[a-z0-9._]{3,30}" placeholder="huruf kecil, mis. sekretariat"></label><label class="f">Nama lengkap<input name="nama" required></label></div><div class="row2"><label class="f">Peran<select name="peran"><option>Ketua LSP</option><option>Admin</option><option>Sekretariat</option><option>Administrasi</option><option>Bidang Sertifikasi</option><option>Manajemen Mutu</option><option>Bidang Skema</option></select></label><label class="f">Password awal (min. 8)<input type="password" name="password" required minlength="8" autocomplete="new-password"></label></div><div><button class="btn" type="submit">Buat akun</button></div><p class="muted" style="font-size:.84rem;margin:0" id="akunInfo"></p></form><div id="editAkun"></div>` : '<p class="muted" style="font-size:.86rem">Penambahan akun dan reset sandi hanya oleh Admin atau Ketua LSP.</p>'}</div>

@@ -554,6 +554,7 @@ function dasborUntuk_(user) {
     d.ag = []; d.agB = [];
   }
   d.saya = { username: user.username, nama: user.nama, peran: user.peran };
+  d.terpusat = akunTerpusat_();
   return d;
 }
 
@@ -608,19 +609,89 @@ function privatkanBerkas() {
   return pesan;
 }
 
+// ===================== Akun bersama dengan SIPINTAR =====================
+// Bila Script Property SIPINTAR_SHEET_ID diisi, akun dibaca dari sheet Pengguna SIPINTAR
+// (satu username + password untuk kedua aplikasi). Cara acak password kedua aplikasi sama.
+// Kosong = memakai tab Pengguna milik Arsip sendiri (cara lama).
+var PETA_PERAN_ = { 'Sekretariat LSP': 'Sekretariat', 'Bagian Administrasi': 'Administrasi', 'Bagian Sertifikasi': 'Bidang Sertifikasi', 'Bagian Manajemen Mutu': 'Manajemen Mutu' };
+var PETA_PERAN_BALIK_ = { 'Sekretariat': 'Sekretariat LSP', 'Administrasi': 'Bagian Administrasi', 'Bidang Sertifikasi': 'Bagian Sertifikasi', 'Manajemen Mutu': 'Bagian Manajemen Mutu' };
+var PUSAT_MEMO = null;
+function idSipintar_() { return String(PropertiesService.getScriptProperties().getProperty('SIPINTAR_SHEET_ID') || '').trim(); }
+function akunTerpusat_() { return !!idSipintar_(); }
+function ssSipintar_() {
+  if (PUSAT_MEMO) return PUSAT_MEMO;
+  try { PUSAT_MEMO = SpreadsheetApp.openById(idSipintar_()); }
+  catch (e) { throw galat('Spreadsheet SIPINTAR tidak dapat dibuka. Periksa SIPINTAR_SHEET_ID dan akses akun Google.'); }
+  return PUSAT_MEMO;
+}
+function shPenggunaPusat_() {
+  var sh = ssSipintar_().getSheetByName('Pengguna');
+  if (!sh) throw galat('Sheet Pengguna SIPINTAR tidak ditemukan.');
+  return sh;
+}
+/** Semua akun (username, nama, peran versi Arsip, salt, password_hash, aktif). */
+function bacaPengguna_() {
+  if (!akunTerpusat_()) return bacaTabel('Pengguna');
+  var v = shPenggunaPusat_().getDataRange().getValues();
+  var h = (v.shift() || []).map(String);
+  return v.filter(function (b) { return b.join('') !== ''; }).map(function (b) {
+    var o = {}; h.forEach(function (k, i) { if (k) o[k] = b[i]; });
+    o.peran_sipintar = o.peran;
+    o.peran = PETA_PERAN_[o.peran] || o.peran;
+    return o;
+  }).filter(function (o) { return String(o.username || '').trim(); });
+}
+function cariPengguna_(username) {
+  var un = String(username || '').trim().toLowerCase();
+  return bacaPengguna_().filter(function (r) { return String(r.username).toLowerCase() === un; })[0] || null;
+}
+function sidik_(salt) { return String(salt || '').slice(0, 12); }
+/** Catat ke sheet Akses SIPINTAR agar riwayat akun lengkap di satu tempat. */
+function catatAksesPusat_(user, aksi) {
+  try {
+    var sh = ssSipintar_().getSheetByName('Akses'); if (!sh) return;
+    var h = sh.getRange(1, 1, 1, sh.getLastColumn()).getValues()[0].map(String);
+    var o = { waktu: Utilities.formatDate(new Date(), CONFIG.TZ, 'yyyy-MM-dd HH:mm:ss'), aktor: user.nama || user.username, peran: user.peran, langkah_sop: '10', aksi: aksi, ref: user.username, detail: 'Dari aplikasi Arsip' };
+    sh.appendRow(h.map(function (k) { return o[k] != null ? o[k] : ''; }));
+  } catch (e) { /* tidak boleh menggagalkan transaksi */ }
+}
+var TOLAK_AKUN_ = 'Akun dikelola di panel admin SIPINTAR (menu Pengguna).';
+
+/** Jalankan SEKALI dari editor: salin akun yang hanya ada di Arsip ke sheet Pengguna SIPINTAR (password tetap berlaku). */
+function salinAkunKeSipintar() {
+  if (!akunTerpusat_()) throw new Error('Isi dulu Script Property SIPINTAR_SHEET_ID.');
+  var sh = shPenggunaPusat_();
+  var h = sh.getRange(1, 1, 1, sh.getLastColumn()).getValues()[0].map(String);
+  var ada = {};
+  bacaPengguna_().forEach(function (r) { ada[String(r.username).toLowerCase()] = 1; });
+  var disalin = [], bentrok = [], dilewati = [];
+  bacaTabel('Pengguna').forEach(function (r) {
+    var un = String(r.username || '').trim().toLowerCase();
+    if (!un || !r.password_hash || !r.salt) { if (un) dilewati.push(un + ' (belum punya password)'); return; }
+    if (ada[un]) { bentrok.push(un); return; }
+    var o = { username: un, nama: r.nama || un, peran: PETA_PERAN_BALIK_[r.peran] || r.peran, salt: r.salt, password_hash: r.password_hash, aktif: r.aktif || 'YA' };
+    sh.appendRow(h.map(function (k) { return o[k] != null ? o[k] : ''; }));
+    ada[un] = 1; disalin.push(un + ' → ' + o.peran);
+  });
+  var pesan = 'Disalin: ' + (disalin.join(', ') || '-') + ' | Username sudah ada di SIPINTAR (tidak ditimpa): ' + (bentrok.join(', ') || '-') + ' | Dilewati: ' + (dilewati.join(', ') || '-');
+  Logger.log(pesan);
+  return pesan;
+}
+
 // ===================== Cache akun (pemeriksaan sesi) =====================
 /** Data akun untuk pemeriksaan sesi; disimpan 60 detik di cache dan dihapus setiap akun diubah. */
 function akun_(username) {
-  var un = String(username || '').toLowerCase(), c = CacheService.getScriptCache(), key = 'akun_' + un;
+  var un = String(username || '').toLowerCase(), c = CacheService.getScriptCache(), key = 'akun_' + (akunTerpusat_() ? 'p_' : 'l_') + un;
   var hit = c.get(key);
   if (hit) return JSON.parse(hit);
-  var r = bacaTabel('Pengguna').filter(function (x) { return String(x.username).toLowerCase() === un; })[0];
-  var o = r ? { username: r.username, nama: r.nama, peran: r.peran, aktif: r.aktif } : null;
+  var r = cariPengguna_(un);
+  var o = r ? { username: r.username, nama: r.nama, peran: r.peran, aktif: r.aktif, sk: sidik_(r.salt) } : null;
   if (o) { try { c.put(key, JSON.stringify(o), 60); } catch (e) {} }
   return o;
 }
 function lupakanAkun_(username) {
-  try { CacheService.getScriptCache().remove('akun_' + String(username || '').toLowerCase()); } catch (e) {}
+  var un = String(username || '').toLowerCase();
+  try { CacheService.getScriptCache().removeAll(['akun_p_' + un, 'akun_l_' + un, 'akun_' + un]); } catch (e) {}
 }
 
 // ===================== Login ala SIPINTAR =====================
@@ -633,7 +704,7 @@ function masuk(d) {
   return denganKunciNilai(function () {
     var gagal = Number(cache.get(kunciGagal) || 0);
     if (gagal >= 5) throw galat('Terlalu banyak percobaan gagal. Coba lagi 10 menit lagi.');
-    var user = bacaTabel('Pengguna').filter(function (r) { return String(r.username).toLowerCase() === u; })[0];
+    var user = cariPengguna_(u);
     // Hash tetap dihitung walau username tidak ada agar waktu respons tidak membocorkan username.
     var cocok = hashKata_(d.password || '', user ? user.salt : 'arsip-dummy-salt') === (user ? user.password_hash : 'x');
     if (!user || !cocok || String(user.aktif).toUpperCase() === 'TIDAK') {
@@ -644,23 +715,24 @@ function masuk(d) {
     var token = Utilities.getUuid() + Utilities.getUuid().replace(/-/g, '');
     var ingat = d.ingat === true || d.ingat === 'on' || d.ingat === 'YA';
     var sesi = { username: user.username, nama: user.nama, peran: user.peran,
-      t: Date.now(), ingat: ingat,
+      t: Date.now(), ingat: ingat, sk: sidik_(user.salt),
       exp: Date.now() + (ingat ? CONFIG.INGAT_HARI * 86400000 : CONFIG.SESSION_SECONDS * 1000) };
     simpanSesi_(token, sesi);
     try { bersihkanSesi_(); } catch (e) {}
     catatLog({ nama: user.nama, username: user.username, peran: user.peran }, 'Masuk aplikasi' + (ingat ? ' (ingat perangkat ' + CONFIG.INGAT_HARI + ' hari)' : ''));
-    return { token: token, user: { username: user.username, nama: user.nama, peran: user.peran } };
+    return { token: token, terpusat: akunTerpusat_(), user: { username: user.username, nama: user.nama, peran: user.peran } };
   });
 }
 
 function gantiPassword(user, d) {
-  var me = bacaTabel('Pengguna').filter(function (r) { return String(r.username).toLowerCase() === String(user.username).toLowerCase(); })[0];
+  var me = cariPengguna_(user.username);
   if (!me || hashKata_(String(d.lama || ''), me.salt) !== me.password_hash) throw galat('Password lama salah.');
   if (String(d.baru || '').length < 8) throw galat('Password baru minimal 8 karakter.');
   var salt = Utilities.getUuid();
+  var pusat = akunTerpusat_();
   denganKunci(function () {
-    var sh = sheetTabel('Pengguna');
-    var judul = judulKolom(sh);
+    var sh = pusat ? shPenggunaPusat_() : sheetTabel('Pengguna');
+    var judul = pusat ? sh.getRange(1, 1, 1, sh.getLastColumn()).getValues()[0].map(String) : judulKolom(sh); // sheet SIPINTAR: jangan pakai memo judul Arsip
     var ids = sh.getRange(1, judul.indexOf('username') + 1, sh.getLastRow(), 1).getValues();
     var baris = -1;
     for (var i = 1; i < ids.length; i++) {
@@ -669,13 +741,14 @@ function gantiPassword(user, d) {
     if (baris < 0) throw galat('Akun tidak ditemukan.');
     sh.getRange(baris, judul.indexOf('salt') + 1).setValue(salt);
     sh.getRange(baris, judul.indexOf('password_hash') + 1).setValue(hashKata_(String(d.baru), salt));
-    sh.getRange(baris, judul.indexOf('diubah') + 1).setValue(new Date().toISOString());
+    if (judul.indexOf('diubah') >= 0) sh.getRange(baris, judul.indexOf('diubah') + 1).setValue(new Date().toISOString());
   });
-  hapusCache('Pengguna');
-  cabutSesi_(user.username); // sesi lain (perangkat lain / token bocor) ikut berakhir
+  if (!pusat) hapusCache('Pengguna');
+  cabutSesi_(user.username); // sesi lain (perangkat lain / token bocor) ikut berakhir; sesi SIPINTAR berakhir lewat sidik salt
   // sesi saat ini tetap aktif (plek SIPINTAR)
-  simpanSesi_(user._token, { username: user.username, nama: user.nama, peran: user.peran, t: Date.now() + 1000, ingat: !!user.ingat, exp: Number(user.exp) || (Date.now() + CONFIG.SESSION_SECONDS * 1000) });
+  simpanSesi_(user._token, { username: user.username, nama: user.nama, peran: user.peran, sk: sidik_(salt), t: Date.now() + 1000, ingat: !!user.ingat, exp: Number(user.exp) || (Date.now() + CONFIG.SESSION_SECONDS * 1000) });
   catatLog(user, 'Ganti password');
+  if (pusat) catatAksesPusat_(user, 'Ganti password');
   return { ok: true };
 }
 
@@ -695,7 +768,7 @@ function authUser(token) {
   // Periksa ulang akun setiap permintaan: nonaktif / peran berubah / password diganti langsung berlaku.
   var u = akun_(sesi.username);
   var ver = Number(PropertiesService.getScriptProperties().getProperty('uver_' + String(sesi.username).toLowerCase()) || 0);
-  if (!u || String(u.aktif).toUpperCase() === 'TIDAK' || ver > Number(sesi.t || 0)) {
+  if (!u || String(u.aktif).toUpperCase() === 'TIDAK' || ver > Number(sesi.t || 0) || (sesi.sk && u.sk && sesi.sk !== u.sk)) {
     hapusSesi_(token);
     throw galat('Sesi berakhir. Silakan login kembali.');
   }
@@ -748,7 +821,7 @@ function hanyaPengelola_(user) {
 function daftarPengguna_(user) {
   hanyaPengelola_(user);
   // Baris contoh lama tanpa username disembunyikan (tanpa username tidak bisa login juga).
-  return bacaTabel('Pengguna').filter(function (r) { return String(r.username || '').trim(); }).map(function (r) {
+  return bacaPengguna_().filter(function (r) { return String(r.username || '').trim(); }).map(function (r) {
     return { username: r.username, nama: r.nama, peran: r.peran, aktif: r.aktif, bagian: r.bagian, email: r.email };
   });
 }
@@ -757,6 +830,7 @@ function daftarPengguna_(user) {
 // peran, nonaktif, dan password) dalam satu aksi. Hanya Admin dan Ketua.
 function simpanPengguna_(user, d) {
   hanyaPengelola_(user);
+  if (akunTerpusat_()) throw galat(TOLAK_AKUN_);
   var un = String(d.username || '').trim().toLowerCase();
   if (!/^[a-z0-9._]{3,30}$/.test(un)) throw galat('Username 3–30 karakter: huruf kecil, angka, titik, garis bawah.');
   if (['Ketua LSP', 'Admin', 'Sekretariat', 'Administrasi', 'Bidang Sertifikasi', 'Manajemen Mutu', 'Bidang Skema'].indexOf(d.peran) < 0) throw galat('Peran tidak dikenal.');
@@ -814,6 +888,7 @@ function simpanPengguna_(user, d) {
 // Hapus akun (hanya Admin/Ketua). Tidak boleh menghapus diri sendiri.
 function hapusPengguna_(user, d) {
   hanyaPengelola_(user);
+  if (akunTerpusat_()) throw galat(TOLAK_AKUN_);
   var un = String(d.username || '').trim().toLowerCase();
   if (!un) throw galat('Username kosong.');
   if (un === String(user.username).toLowerCase()) throw galat('Tidak dapat menghapus akun sendiri yang sedang dipakai.');
@@ -836,6 +911,7 @@ function hapusPengguna_(user, d) {
 
 function aturSandi_(user, d) {
   hanyaPengelola_(user);
+  if (akunTerpusat_()) throw galat(TOLAK_AKUN_);
   var u = String(d.username || '').trim().toLowerCase();
   var pw = String(d.password || '');
   if (pw.length < 8) throw galat('Password minimal 8 karakter.');
