@@ -699,19 +699,13 @@ function lupakanAkun_(username) {
 function masuk(d) {
   var u = String(d.username || '').trim().toLowerCase();
   if (!u) throw galat('Username wajib diisi.');
-  var cache = CacheService.getScriptCache();
-  var kunciGagal = 'gagal_' + u;
   return denganKunciNilai(function () {
-    var gagal = Number(cache.get(kunciGagal) || 0);
-    if (gagal >= 5) throw galat('Terlalu banyak percobaan gagal. Coba lagi 10 menit lagi.');
     var user = cariPengguna_(u);
     // Hash tetap dihitung walau username tidak ada agar waktu respons tidak membocorkan username.
     var cocok = hashKata_(d.password || '', user ? user.salt : 'arsip-dummy-salt') === (user ? user.password_hash : 'x');
     if (!user || !cocok || String(user.aktif).toUpperCase() === 'TIDAK') {
-      cache.put(kunciGagal, String(gagal + 1), 600);
       throw galat('Username atau password salah.');
     }
-    cache.remove(kunciGagal);
     var token = Utilities.getUuid() + Utilities.getUuid().replace(/-/g, '');
     var ingat = d.ingat === true || d.ingat === 'on' || d.ingat === 'YA';
     var sesi = { username: user.username, nama: user.nama, peran: user.peran,
